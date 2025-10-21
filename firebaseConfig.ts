@@ -1,11 +1,11 @@
 // Import the functions you need from the SDKs you need
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth"; // <-- Using the standard getAuth
+import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyC5R7kUhMHeCmuA9mP2LCU0KLdEN0u-1n8",
+  apiKey: process.env.GOOGLE_API,
   authDomain: "skillswap-9d20a.firebaseapp.com",
   projectId: "skillswap-9d20a",
   storageBucket: "skillswap-9d20a.firebasestorage.app",

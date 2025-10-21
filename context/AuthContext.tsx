@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext, createContext, ReactNode } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '../firebaseConfig'; // Import your auth object
+import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { auth } from '../firebaseConfig'; // Import auth object
 
 // Define the shape of the context data
 interface AuthContextType {

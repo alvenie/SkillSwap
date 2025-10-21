@@ -10,8 +10,7 @@ export default function HomeScreen() {
     try {
       await signOut(auth);
       // Sign-out successful.
-      // The AuthContext listener will update,
-      // and the root layout will redirect to login.
+      // The AuthContext listener will update, and the root layout will redirect to login.
     } catch (error: any) {
       Alert.alert('Sign Out Failed', error.message);
     }

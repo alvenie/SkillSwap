@@ -19,9 +19,7 @@ export default function Login() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       // Login successful!
-      // The onAuthStateChanged listener in AuthContext
-      // will update the state, and the root layout
-      // will automatically redirect to '/(app)'.
+      // The onAuthStateChanged listener in AuthContext will update the state, and the root layout will automatically redirect to '/(app)'.
     } catch (error: any) {
       Alert.alert('Login Failed', error.message);
     } finally {
