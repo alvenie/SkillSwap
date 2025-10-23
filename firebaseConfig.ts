@@ -5,7 +5,7 @@ import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: process.env.GOOGLE_API,
+  apiKey: process.env.EXPO_PUBLIC_GOOGLE_API,
   authDomain: "skillswap-9d20a.firebaseapp.com",
   projectId: "skillswap-9d20a",
   storageBucket: "skillswap-9d20a.firebasestorage.app",
