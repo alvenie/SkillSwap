@@ -2,16 +2,17 @@
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_GOOGLE_API,
-  authDomain: "skillswap-9d20a.firebaseapp.com",
-  projectId: "skillswap-9d20a",
-  storageBucket: "skillswap-9d20a.firebasestorage.app",
-  messagingSenderId: "578599998895",
-  appId: "1:578599998895:web:2a55c185c8ded5881a8b5a",
-  measurementId: "G-92W0G4EK6L"
+    apiKey: "AIzaSyBrNqcVV1KbMNrtbqZayFZWYy67TRzviPw",
+    authDomain: "skillswap-87d7f.firebaseapp.com",
+    projectId: "skillswap-87d7f",
+    storageBucket: "skillswap-87d7f.firebasestorage.app",
+    messagingSenderId: "674145243703",
+    appId: "1:674145243703:web:25fce2c41873ac8d5b25b2",
+    measurementId: "G-ZR1E4402HK"
 };
 
 // Initialize Firebase
@@ -21,6 +22,7 @@ const app = initializeApp(firebaseConfig);
 // This initializes auth without persistence. 
 // Users will be logged out when the app closes.
 const auth = getAuth(app);
+const db = getFirestore(app);
 
 
 // --- ANALYTICS SETUP ---
@@ -32,5 +34,5 @@ isSupported().then((supported) => {
 });
 
 // Export the initialized auth object for use in other files
-export { auth };
+export { auth,db };
 

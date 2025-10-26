@@ -1,57 +1,55 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
-import { View } from 'react-native'; // Or a custom splash screen
+import { View, ActivityIndicator } from 'react-native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 
-// This component handles the redirection logic
-const RootLayoutNav = () => {
-  const { user, isLoading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
+// Your Stripe Publishable Key from Stripe Dashboard
+const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SMUvw0PYyjZRDce0rzXOYfn5tZrhBIowfgMr96Or2xGJeEwjOJGWhZQMrNYfcJusbSrpGqECHTVngSC09I6lr4Q00nqd3k0Hu';
 
-  useEffect(() => {
-    // Wait for auth state to load
+function RootLayoutNav() {
+    const { user, isLoading } = useAuth();
+    const segments = useSegments();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (isLoading) return;
+
+        const inAppGroup = segments[0] === '(app)';
+
+        if (user && !inAppGroup) {
+            router.replace('/(app)');
+        } else if (!user && inAppGroup) {
+            router.replace('/(public)/login');
+        }
+    }, [user, isLoading, segments]);
+
     if (isLoading) {
-      return;
+        return (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+                <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+        );
     }
 
-    const inAppGroup = segments[0] === '(app)';
+    return (
+        <Stack>
+            <Stack.Screen name="(app)" options={{ headerShown: false }} />
+            <Stack.Screen name="(public)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        </Stack>
+    );
+}
 
-    if (user && !inAppGroup) {
-      // User is logged in but not in the (app) group, redirect to home
-      router.replace('/(app)');
-    } else if (!user && inAppGroup) {
-      // User is not logged in but is in the (app) group, redirect to login
-      router.replace('/(public)/login');
-    }
-  }, [user, isLoading, segments]);
-
-  // Show a loading screen or null while auth is checking
-  if (isLoading) {
-    // You can return a custom loading/splash screen here
-    return <View />;
-  }
-
-  // Render the correct layout (public or app)
-  return (
-    <Stack>
-      {/* Your protected app screens */}
-      <Stack.Screen name="(app)" options={{ headerShown: false }} />
-      
-      {/* Your public auth screens */}
-      <Stack.Screen name="(public)" options={{ headerShown: false }} />
-      
-      {/* Your modal screen */}
-      <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-    </Stack>
-  );
-};
-
-// This is the main root layout
 export default function RootLayout() {
-  return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
-  );
+    return (
+        <AuthProvider>
+            <StripeProvider
+                publishableKey={STRIPE_PUBLISHABLE_KEY}
+                merchantIdentifier="merchant.com.skillswap" // Optional for Apple Pay
+            >
+                <RootLayoutNav />
+            </StripeProvider>
+        </AuthProvider>
+    );
 }
