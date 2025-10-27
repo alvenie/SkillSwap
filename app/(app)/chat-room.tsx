@@ -25,8 +25,11 @@ import {
     setDoc,
     updateDoc,
     Timestamp,
+    where,
+    getDocs,
 } from 'firebase/firestore';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { generateConversationId } from '../../utils/conversationUtils';
 
 interface Message {
     id: string;
@@ -38,14 +41,15 @@ interface Message {
 }
 
 export default function ChatRoomScreen() {
-    const { user } = useAuth();
+    const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const params = useLocalSearchParams();
 
-    const conversationId = params.conversationId as string;
     const otherUserId = params.otherUserId as string;
     const otherUserName = params.otherUserName as string;
 
+    // State for conversationId
+    const [conversationId, setConversationId] = useState<string>('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [messageText, setMessageText] = useState('');
     const [loading, setLoading] = useState(true);
@@ -53,14 +57,62 @@ export default function ChatRoomScreen() {
     const [conversationReady, setConversationReady] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
+    // Set up conversationId when user is available
     useEffect(() => {
-        if (!conversationId || !user) return;
+        if (authLoading || !user) return;
 
-        console.log('💬 Setting up chat room for conversation:', conversationId);
+        const paramConversationId = params.conversationId as string;
+        const finalConversationId = paramConversationId || generateConversationId(user.uid, otherUserId);
+
+        console.log('🔑 Setting conversation ID:', finalConversationId);
+        setConversationId(finalConversationId);
+    }, [authLoading, user, otherUserId, params.conversationId]);
+
+    useEffect(() => {
+        // Wait for auth to load
+        if (authLoading) {
+            console.log('⏳ Waiting for auth to load...');
+            return;
+        }
+
+        // Check if user is authenticated
+        if (!user) {
+            console.error('❌ User not authenticated');
+            Alert.alert('Error', 'Please login to access messages', [
+                { text: 'OK', onPress: () => router.replace('/(public)/login') }
+            ]);
+            return;
+        }
+
+        // Validate required params
+        if (!otherUserId) {
+            console.error('❌ Missing otherUserId');
+            Alert.alert('Error', 'Invalid conversation', [
+                { text: 'OK', onPress: () => {
+                        if (router.canGoBack()) {
+                            router.back();
+                        } else {
+                            router.replace('/(app)');
+                        }
+                    }}
+            ]);
+            return;
+        }
+
+        // Wait for conversationId to be set
+        if (!conversationId) {
+            console.log('⏳ Waiting for conversation ID...');
+            return;
+        }
+
+        console.log('💬 Setting up chat room');
+        console.log('   Conversation ID:', conversationId);
+        console.log('   Current User:', user.uid);
+        console.log('   Other User:', otherUserId);
 
         // Initialize conversation first, then set up listener
         initializeChat();
-    }, [conversationId, user]);
+    }, [authLoading, user, conversationId, otherUserId]);
 
     useEffect(() => {
         // Only set up message listener after conversation is ready
@@ -109,7 +161,7 @@ export default function ChatRoomScreen() {
         if (!user || !conversationId || !otherUserId) return;
 
         try {
-            console.log('🔍 Verifying conversation...');
+            console.log('🔍 Verifying/Creating conversation...');
             const conversationRef = doc(db, 'conversations', conversationId);
             const conversationDoc = await getDoc(conversationRef);
 
@@ -121,12 +173,20 @@ export default function ChatRoomScreen() {
                 const currentUserData = currentUserDoc.data();
                 const currentUserName = currentUserData?.displayName || user.email || 'User';
 
+                // Get other user's name if not provided
+                let otherName = otherUserName;
+                if (!otherName) {
+                    const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+                    const otherUserData = otherUserDoc.data();
+                    otherName = otherUserData?.displayName || otherUserData?.email || 'User';
+                }
+
                 // Create conversation with all required fields
                 await setDoc(conversationRef, {
                     participants: [user.uid, otherUserId],
                     participantNames: {
                         [user.uid]: currentUserName,
-                        [otherUserId]: otherUserName,
+                        [otherUserId]: otherName,
                     },
                     lastMessage: '',
                     lastMessageTime: new Date().toISOString(),
@@ -136,11 +196,40 @@ export default function ChatRoomScreen() {
                         [otherUserId]: 0,
                     },
                     createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
                 });
 
                 console.log('✅ Conversation created successfully');
             } else {
                 console.log('✅ Conversation already exists');
+
+                // Ensure both users are participants (fix for existing conversations)
+                const data = conversationDoc.data();
+                const participants = data?.participants || [];
+
+                if (!participants.includes(user.uid) || !participants.includes(otherUserId)) {
+                    console.log('🔧 Fixing participant list...');
+
+                    // Get user names
+                    const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+                    const currentUserData = currentUserDoc.data();
+                    const currentUserName = currentUserData?.displayName || user.email || 'User';
+
+                    const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+                    const otherUserData = otherUserDoc.data();
+                    const otherName = otherUserData?.displayName || otherUserData?.email || 'User';
+
+                    await updateDoc(conversationRef, {
+                        participants: [user.uid, otherUserId],
+                        participantNames: {
+                            [user.uid]: currentUserName,
+                            [otherUserId]: otherName,
+                        },
+                        updatedAt: new Date().toISOString(),
+                    });
+
+                    console.log('✅ Participant list fixed');
+                }
             }
 
             // Mark conversation as ready
@@ -208,13 +297,18 @@ export default function ChatRoomScreen() {
 
             // Update conversation with last message
             const conversationRef = doc(db, 'conversations', conversationId);
+
+            // Get current unread count for other user
+            const conversationDoc = await getDoc(conversationRef);
+            const conversationData = conversationDoc.data();
+            const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
+
             await updateDoc(conversationRef, {
                 lastMessage: text,
                 lastMessageTime: new Date().toISOString(),
                 lastMessageSender: user.uid,
-                [`unreadCount.${otherUserId}`]: (messages.filter(m =>
-                    m.senderId !== otherUserId && !m.read
-                ).length + 1),
+                [`unreadCount.${otherUserId}`]: currentUnreadCount + 1,
+                updatedAt: new Date().toISOString(),
             });
 
             console.log('✅ Message sent successfully');
@@ -301,7 +395,7 @@ export default function ChatRoomScreen() {
                     <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                         <Text style={styles.backButtonText}>←</Text>
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>{otherUserName}</Text>
+                    <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
                     <View style={{ width: 40 }} />
                 </View>
                 <View style={styles.loadingContainer}>
@@ -318,7 +412,7 @@ export default function ChatRoomScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Text style={styles.backButtonText}>←</Text>
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>{otherUserName}</Text>
+                <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
                 <View style={{ width: 40 }} />
             </View>
 

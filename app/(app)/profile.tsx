@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { doc, getDoc, collection, query, where, getDocs, updateDoc, addDoc, increment } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
+import { generateConversationId } from '../../utils/conversationUtils';
 
 interface UserProfile {
     uid: string;
@@ -268,6 +269,25 @@ export default function ProfileScreen() {
         }
     };
 
+    // ✅ FIXED: Added function to handle opening chat
+    const handleOpenChat = (friendId: string, friendName: string) => {
+        if (!user) return;
+
+        const conversationId = generateConversationId(user.uid, friendId);
+
+        console.log('💬 Opening chat with:', friendName);
+        console.log('📝 Conversation ID:', conversationId);
+
+        router.push({
+            pathname: '/(app)/chat-room',
+            params: {
+                conversationId,
+                otherUserId: friendId,
+                otherUserName: friendName,
+            },
+        });
+    };
+
     const onRefresh = () => {
         setRefreshing(true);
         loadProfile();
@@ -478,11 +498,10 @@ export default function ProfileScreen() {
                                     <Text style={styles.friendName}>{friend.friendName}</Text>
                                     <Text style={styles.friendEmail}>{friend.friendEmail}</Text>
                                 </View>
+                                {/* ✅ FIXED: Now opens chat instead of showing "Coming Soon" */}
                                 <TouchableOpacity
                                     style={styles.messageButton}
-                                    onPress={() =>
-                                        Alert.alert('Coming Soon', 'Messaging feature coming soon!')
-                                    }
+                                    onPress={() => handleOpenChat(friend.friendId, friend.friendName)}
                                 >
                                     <Text style={styles.messageButtonText}>💬</Text>
                                 </TouchableOpacity>
