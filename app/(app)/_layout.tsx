@@ -25,11 +25,11 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="video-chat"
+                name="chat-list"
                 options={{
-                    title: 'Video Chat',
-                    tabBarLabel: 'Video Chat',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📹</Text>,
+                    title: 'Messages',
+                    tabBarLabel: 'Messages',
+                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>💬</Text>,
                 }}
             />
             <Tabs.Screen
@@ -48,12 +48,15 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>👤</Text>,
                 }}
             />
+            {/* Hidden routes */}
+            <Tabs.Screen name="video-chat" options={{ href: null }} />
             <Tabs.Screen name="payment" options={{ href: null }} />
             <Tabs.Screen name="history" options={{ href: null }} />
             <Tabs.Screen name="edit-profile" options={{ href: null }} />
             <Tabs.Screen name="find-friends" options={{ href: null }} />
             <Tabs.Screen name="friends-list" options={{ href: null }} />
             <Tabs.Screen name="explore" options={{ href: null }} />
+            <Tabs.Screen name="chat-room" options={{ href: null }} />
         </Tabs>
     );
 }

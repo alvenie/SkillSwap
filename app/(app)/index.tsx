@@ -49,6 +49,19 @@ export default function HomeScreen() {
             <ScrollView style={styles.content}>
                 <Text style={styles.title}>Skills Marketplace</Text>
 
+                {/* Messages - NEW */}
+                <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => router.push('./chat-list')}
+                >
+                    <Text style={styles.cardIcon}>💬</Text>
+                    <View style={styles.cardText}>
+                        <Text style={styles.cardTitle}>Messages</Text>
+                        <Text style={styles.cardSubtitle}>Chat with friends</Text>
+                    </View>
+                    <Text style={styles.arrow}>→</Text>
+                </TouchableOpacity>
+
                 {/* Payment History */}
                 <TouchableOpacity
                     style={styles.card}
@@ -62,7 +75,7 @@ export default function HomeScreen() {
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>
 
-                {/* Video Chat - NEW */}
+                {/* Video Chat */}
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => router.push('./video-chat')}

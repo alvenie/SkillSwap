@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { setDoc, doc } from 'firebase/firestore';
+import { setDoc, doc, getDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,18 +20,38 @@ export default function Login() {
         try {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
-            // ✅ UPDATE USER STATUS TO ONLINE
-            await setDoc(
-                doc(db, 'users', userCredential.user.uid),
-                {
+            // ✅ UPDATE USER STATUS TO ONLINE AND ENSURE friendCount EXISTS
+            const userRef = doc(db, 'users', userCredential.user.uid);
+            const userDoc = await getDoc(userRef);
+
+            if (!userDoc.exists()) {
+                // If user document doesn't exist, create it
+                await setDoc(userRef, {
                     uid: userCredential.user.uid,
                     email: userCredential.user.email,
                     displayName: userCredential.user.email || 'User',
                     status: 'online',
                     lastSeen: new Date().toISOString(),
-                },
-                { merge: true }
-            );
+                    friendCount: 0,
+                    skillsTeaching: [],
+                    skillsLearning: [],
+                    createdAt: new Date().toISOString(),
+                });
+            } else {
+                // Update existing user document
+                const updateData: any = {
+                    status: 'online',
+                    lastSeen: new Date().toISOString(),
+                };
+
+                // Add friendCount if it doesn't exist
+                const userData = userDoc.data();
+                if (userData.friendCount === undefined) {
+                    updateData.friendCount = 0;
+                }
+
+                await setDoc(userRef, updateData, { merge: true });
+            }
 
         } catch (error: any) {
             Alert.alert('Login Failed', error.message);

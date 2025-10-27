@@ -257,7 +257,16 @@ export default function FriendsListScreen() {
                             style={styles.messageButton}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                Alert.alert('Coming Soon', 'Messaging feature coming soon!');
+                                // Generate proper conversation ID (sorted user IDs)
+                                const conversationId = [user?.uid, friend.friendId].sort().join('_');
+                                router.push({
+                                    pathname: '/(app)/chat-room',
+                                    params: {
+                                        conversationId,
+                                        otherUserId: friend.friendId,
+                                        otherUserName: friend.friendName,
+                                    },
+                                });
                             }}
                         >
                             <Text style={styles.messageButtonText}>💬</Text>
@@ -303,7 +312,7 @@ export default function FriendsListScreen() {
                     </TouchableOpacity>
                     <Text style={styles.title}>My Friends</Text>
                     <TouchableOpacity
-                        onPress={() => router.push('/(app)/find-friends')}
+                        onPress={() => router.push('/find-friends')}
                         style={styles.addButton}
                     >
                         <Text style={styles.addButtonText}>+ Add</Text>
@@ -338,7 +347,7 @@ export default function FriendsListScreen() {
                         {!searchText && (
                             <TouchableOpacity
                                 style={styles.findFriendsButton}
-                                onPress={() => router.push('/(app)/find-friends')}
+                                onPress={() => router.push('/find-friends')}
                             >
                                 <Text style={styles.findFriendsButtonText}>Find Friends</Text>
                             </TouchableOpacity>

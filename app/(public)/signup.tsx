@@ -20,7 +20,7 @@ export default function SignUp() {
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
-            // ✅ CREATE USER PROFILE IN FIRESTORE
+            // ✅ CREATE USER PROFILE IN FIRESTORE WITH friendCount INITIALIZED
             await setDoc(doc(db, 'users', userCredential.user.uid), {
                 uid: userCredential.user.uid,
                 email: userCredential.user.email,
@@ -28,6 +28,9 @@ export default function SignUp() {
                 status: 'online',
                 lastSeen: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
+                friendCount: 0, // ← ADDED: Initialize friend count
+                skillsTeaching: [], // ← ADDED: Initialize skills arrays
+                skillsLearning: [], // ← ADDED: Initialize skills arrays
             });
 
             Alert.alert('Success', 'Account created successfully!');

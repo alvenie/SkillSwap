@@ -198,29 +198,56 @@ export default function ProfileScreen() {
                 });
                 console.log('✅ Friendship created for other user');
 
-                // Step 5: Update friend counts for both users
+                // Step 5: Update friend counts for both users (with error handling)
                 console.log('🔢 Step 5: Updating friend counts...');
-                await updateDoc(doc(db, 'users', user.uid), {
-                    friendCount: increment(1),
-                });
-                await updateDoc(doc(db, 'users', fromUserId), {
-                    friendCount: increment(1),
-                });
-                console.log('✅ Friend counts updated');
+                try {
+                    // Get current user doc to check if friendCount exists
+                    const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+                    const currentUserData = currentUserDoc.data();
+                    const currentFriendCount = currentUserData?.friendCount || 0;
+
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        friendCount: currentFriendCount + 1,
+                    });
+
+                    // Update other user's friend count
+                    const otherUserDoc = await getDoc(doc(db, 'users', fromUserId));
+                    const otherUserData = otherUserDoc.data();
+                    const otherFriendCount = otherUserData?.friendCount || 0;
+
+                    await updateDoc(doc(db, 'users', fromUserId), {
+                        friendCount: otherFriendCount + 1,
+                    });
+                    console.log('✅ Friend counts updated');
+                } catch (countError) {
+                    console.error('⚠️ Error updating friend counts:', countError);
+                    // Don't fail the whole operation if count update fails
+                }
             } else {
                 console.log('⚠️ Friendship already exists, skipping creation');
             }
 
             console.log('🎉 Friend request accepted successfully!');
-            Alert.alert('Success! 🎉', `You and ${fromUserName} are now friends!`);
 
-            // Reload data
-            loadFriendRequests();
-            loadFriends();
-            loadProfile();
+            // Wait a bit for Firestore to propagate changes
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Reload data in parallel
+            await Promise.all([
+                loadFriendRequests(),
+                loadFriends(),
+                loadProfile()
+            ]);
+
+            Alert.alert('Success! 🎉', `You and ${fromUserName} are now friends!`);
         } catch (error: any) {
             console.error('❌ Error accepting request:', error);
-            Alert.alert('Error', `Failed to accept friend request: ${error.message}`);
+            console.error('❌ Error details:', {
+                code: error.code,
+                message: error.message,
+                stack: error.stack
+            });
+            Alert.alert('Error', `Failed to accept friend request. Please try again.`);
         } finally {
             setProcessingRequest(null);
         }
