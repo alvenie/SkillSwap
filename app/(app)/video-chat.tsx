@@ -8,16 +8,13 @@ import {
     Alert,
     ActivityIndicator,
     TextInput,
+    FlatList,
     Modal,
-    PermissionsAndroid,
-    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// ✅ FIXED: Using require instead of import
-const { RtcEngine, RtcSurfaceView } = require('react-native-agora');
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { collection, getDocs, addDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, onSnapshot, doc } from 'firebase/firestore';
 import apiClient from '../../services/apiService';
 
 interface User {
@@ -57,50 +54,11 @@ export default function VideoChatScreen() {
     const [callDuration, setCallDuration] = useState(0);
     const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // ✅ Agora References
-    const agoraEngineRef = useRef<any>(null);
-    const [joinSucceed, setJoinSucceed] = useState(false);
-    const [remoteUsers, setRemoteUsers] = useState<number[]>([]);
-
-    // ✅ Video Controls
-    const [isMuted, setIsMuted] = useState(false);
-    const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-    const [isSpeakerEnabled, setIsSpeakerEnabled] = useState(true);
-
     useEffect(() => {
         loadUsers();
         subscribeToUserStatus();
-        requestPermissions();
     }, []);
 
-    // ✅ Request Permissions
-    const requestPermissions = async () => {
-        if (Platform.OS === 'android') {
-            try {
-                const permissions = [
-                    PermissionsAndroid.PERMISSIONS.CAMERA,
-                    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-                ];
-
-                const granted = await PermissionsAndroid.requestMultiple(permissions);
-
-                const allGranted = Object.values(granted).every(
-                    (permission) => permission === PermissionsAndroid.RESULTS.GRANTED
-                );
-
-                if (!allGranted) {
-                    Alert.alert(
-                        'Permissions Required',
-                        'Camera and Microphone permissions are required for video calls.'
-                    );
-                }
-            } catch (err) {
-                console.error('❌ Error requesting permissions:', err);
-            }
-        }
-    };
-
-    // ✅ Call Timer
     useEffect(() => {
         if (activeCall) {
             const timer = setInterval(() => {
@@ -115,107 +73,6 @@ export default function VideoChatScreen() {
             }
         };
     }, [activeCall]);
-
-    // ✅ Initialize Agora Engine
-    const initAgora = async (callData: ActiveCall) => {
-        try {
-            console.log('📱 Initializing Agora Engine...');
-
-            const engine = RtcEngine.create({
-                appId: callData.appId,
-            });
-
-            agoraEngineRef.current = engine;
-
-            // Event Listeners
-            engine.addListener('UserJoined', (uid: number) => {
-                console.log('✅ User joined:', uid);
-                setRemoteUsers(prev => [...prev, uid]);
-            });
-
-            engine.addListener('UserOffline', (uid: number) => {
-                console.log('✅ User offline:', uid);
-                setRemoteUsers(prev => prev.filter(u => u !== uid));
-            });
-
-            engine.addListener('JoinChannelSuccess', () => {
-                console.log('✅ Successfully joined channel');
-                setJoinSucceed(true);
-            });
-
-            engine.addListener('LeaveChannel', () => {
-                console.log('✅ Left channel');
-                setRemoteUsers([]);
-            });
-
-            // Enable Audio & Video
-            await engine.enableAudio();
-            await engine.enableVideo();
-
-            // Set Video Configuration
-            await engine.setVideoEncoderConfiguration({
-                width: 640,
-                height: 480,
-                bitrate: 1000,
-                frameRate: 30,
-                orientationMode: 1,
-            });
-
-            // Join Channel
-            await engine.joinChannel(
-                callData.agoraToken,
-                callData.channelName,
-                0
-            );
-
-            console.log('✅ Agora initialized successfully');
-        } catch (error) {
-            console.error('❌ Error initializing Agora:', error);
-            Alert.alert('Error', 'Failed to initialize video call');
-        }
-    };
-
-    // ✅ Cleanup Agora
-    const cleanupAgora = async () => {
-        try {
-            if (agoraEngineRef.current) {
-                await agoraEngineRef.current.leaveChannel();
-                await agoraEngineRef.current.destroy();
-                agoraEngineRef.current = null;
-                setJoinSucceed(false);
-                setRemoteUsers([]);
-                console.log('✅ Agora cleaned up');
-            }
-        } catch (error) {
-            console.error('❌ Error cleaning up Agora:', error);
-        }
-    };
-
-    // ✅ Mute/Unmute Audio
-    const handleMute = async () => {
-        try {
-            if (agoraEngineRef.current) {
-                await agoraEngineRef.current.muteLocalAudioStream(!isMuted);
-                setIsMuted(!isMuted);
-                console.log(isMuted ? '✅ Unmuted' : '✅ Muted');
-            }
-        } catch (error) {
-            console.error('❌ Error toggling mute:', error);
-        }
-    };
-
-    // ✅ Toggle Video
-    const handleVideoToggle = async () => {
-        try {
-            if (agoraEngineRef.current) {
-                await agoraEngineRef.current.enableLocalVideo(!isVideoEnabled);
-                setIsVideoEnabled(!isVideoEnabled);
-                console.log(isVideoEnabled ? '✅ Camera OFF' : '✅ Camera ON');
-            }
-        } catch (error) {
-            console.error('❌ Error toggling video:', error);
-        }
-    };
 
     const loadUsers = async () => {
         try {
@@ -295,6 +152,7 @@ export default function VideoChatScreen() {
         setShowCallModal(true);
     };
 
+    // ✅ COMPLETELY FIXED: NO "request" wrapper - Direct API calls
     const initiateCall = async () => {
         if (!user || !selectedUser) return;
 
@@ -303,6 +161,7 @@ export default function VideoChatScreen() {
 
             const channelName = `call-${Date.now()}`;
 
+            // Generate valid userId
             let userId = 0;
             for (let i = 0; i < user.uid.length; i++) {
                 userId = ((userId << 5) - userId) + user.uid.charCodeAt(i);
@@ -310,19 +169,21 @@ export default function VideoChatScreen() {
             }
             userId = Math.abs(userId >>> 0);
 
-            console.log('📱 User ID:', userId);
+            console.log('📱 User ID:', userId, 'Type:', typeof userId);
 
-            // Generate Token
+            // ✅ NO "request" wrapper - send DIRECTLY
             const tokenRequestData = {
                 channelName,
                 userId: userId,
                 expirationSeconds: 3600,
             };
 
-            const tokenResponse = await apiClient.post('/Video/generate-token', tokenRequestData);
-            console.log('✅ Token generated');
+            console.log('📡 Sending token request:', JSON.stringify(tokenRequestData, null, 2));
 
-            // Create Session
+            const tokenResponse = await apiClient.post('/Video/generate-token', tokenRequestData);
+            console.log('✅ Token response:', tokenResponse.data);
+
+            // ✅ NO "request" wrapper - send DIRECTLY
             const sessionRequestData = {
                 channelName,
                 hostId: user.uid,
@@ -334,20 +195,23 @@ export default function VideoChatScreen() {
                 recordingEnabled: false,
             };
 
-            const sessionResponse = await apiClient.post('/Video/create-session', sessionRequestData);
-            console.log('✅ Session created');
+            console.log('📡 Sending session request:', JSON.stringify(sessionRequestData, null, 2));
 
-            // Start Recording
+            const sessionResponse = await apiClient.post('/Video/create-session', sessionRequestData);
+            console.log('✅ Session response:', sessionResponse.data);
+
+            // ✅ NO "request" wrapper - send DIRECTLY
             const recordingRequestData = {
                 sessionId: sessionResponse.data.sessionId,
                 channelName,
                 outputFormat: 'mp4',
             };
 
-            await apiClient.post('/Video/start-recording', recordingRequestData);
-            console.log('✅ Recording started');
+            console.log('📡 Sending recording request:', JSON.stringify(recordingRequestData, null, 2));
 
-            // Create call data
+            const recordingResponse = await apiClient.post('/Video/start-recording', recordingRequestData);
+            console.log('✅ Recording response:', recordingResponse.data);
+
             const callData: ActiveCall = {
                 id: sessionResponse.data.sessionId,
                 sessionId: sessionResponse.data.sessionId,
@@ -361,14 +225,10 @@ export default function VideoChatScreen() {
                 appId: tokenResponse.data.appId,
             };
 
-            // Initialize Agora
-            await initAgora(callData);
-
             setActiveCall(callData);
             setCallDuration(0);
             setShowCallModal(false);
 
-            // Send notification
             await sendCallNotification(selectedUser.uid, {
                 callerId: user.uid,
                 callerName: user.displayName || user.email || 'User',
@@ -410,32 +270,31 @@ export default function VideoChatScreen() {
         }
     };
 
+    // ✅ NO "request" wrapper - send DIRECTLY
     const endCall = async () => {
         if (!activeCall) return;
 
         try {
-            // End session
             const endCallData = {
                 sessionId: activeCall.sessionId,
                 reason: 'Call ended by user',
             };
 
+            console.log('📡 Sending end call request:', JSON.stringify(endCallData, null, 2));
             await apiClient.post('/Video/end-session', endCallData);
-            console.log('✅ Session ended');
+            console.log('✅ Call ended successfully');
 
-            // Stop recording
             try {
+                // ✅ Send recordingId in request body
                 const stopRecordingData = {
                     recordingId: activeCall.id,
                 };
+                console.log('📡 Sending stop recording request:', JSON.stringify(stopRecordingData, null, 2));
                 await apiClient.post(`/Video/stop-recording/${activeCall.id}`, stopRecordingData);
                 console.log('✅ Recording stopped');
             } catch (recordingError) {
                 console.error('Error stopping recording:', recordingError);
             }
-
-            // Cleanup Agora
-            await cleanupAgora();
 
             setActiveCall(null);
             setCallDuration(0);
@@ -483,87 +342,52 @@ export default function VideoChatScreen() {
         );
     };
 
-    // ✅ VIDEO CALL UI
-    if (activeCall && joinSucceed) {
+    if (activeCall) {
         return (
             <SafeAreaView style={styles.callContainer}>
-                {/* Call Header */}
                 <View style={styles.callHeader}>
                     <Text style={styles.callTitle}>{selectedUser?.displayName}</Text>
                     <Text style={styles.callDuration}>{formatDuration(callDuration)}</Text>
                 </View>
 
-                {/* Video Container */}
                 <View style={styles.videoContainer}>
-                    {/* Local Video - FIXED: using canvas prop */}
-                    <RtcSurfaceView
-                        style={styles.localVideoPlaceholder}
-                        canvas={{ uid: 0 }}
-                    />
+                    <View style={styles.localVideoPlaceholder}>
+                        <Text style={styles.videoPlaceholderText}>📱 Your Video</Text>
+                        <Text style={styles.videoPlaceholderSubtext}>(Camera disabled)</Text>
+                    </View>
 
-                    {/* Remote Video - FIXED: using canvas prop */}
-                    {remoteUsers.length > 0 ? (
-                        <RtcSurfaceView
-                            style={styles.remoteVideoPlaceholder}
-                            canvas={{ uid: remoteUsers[0] }}
-                        />
-                    ) : (
-                        <View style={styles.remoteVideoPlaceholder}>
-                            <Text style={styles.videoPlaceholderText}>
-                                📹 Waiting for {selectedUser?.displayName}...
-                            </Text>
-                            <ActivityIndicator color="#fff" size="large" />
-                        </View>
-                    )}
+                    <View style={styles.remoteVideoPlaceholder}>
+                        <Text style={styles.videoPlaceholderText}>📹 {selectedUser?.displayName}</Text>
+                        <Text style={styles.videoPlaceholderSubtext}>(Remote video stream)</Text>
+                    </View>
                 </View>
 
-                {/* Call Controls */}
                 <View style={styles.callControls}>
-                    {/* Mute Button */}
-                    <TouchableOpacity
-                        style={[styles.controlButton, isMuted ? styles.mutedButton : styles.muteButton]}
-                        onPress={handleMute}
-                    >
-                        <Text style={styles.controlButtonText}>{isMuted ? '🔇' : '🎤'}</Text>
+                    <TouchableOpacity style={[styles.controlButton, styles.muteButton]}>
+                        <Text style={styles.controlButtonText}>🔇</Text>
                     </TouchableOpacity>
-
-                    {/* Camera Button */}
-                    <TouchableOpacity
-                        style={[styles.controlButton, !isVideoEnabled ? styles.videoOffButton : styles.videoButton]}
-                        onPress={handleVideoToggle}
-                    >
-                        <Text style={styles.controlButtonText}>{isVideoEnabled ? '📹' : '📵'}</Text>
+                    <TouchableOpacity style={[styles.controlButton, styles.videoButton]}>
+                        <Text style={styles.controlButtonText}>📹</Text>
                     </TouchableOpacity>
-
-                    {/* End Call Button */}
                     <TouchableOpacity
                         style={[styles.controlButton, styles.endCallButton]}
                         onPress={endCall}
                     >
-                        <Text style={styles.controlButtonText}>☎️</Text>
+                        <Text style={styles.controlButtonText}>📞</Text>
                     </TouchableOpacity>
-
-                    {/* Speaker Button */}
-                    <TouchableOpacity
-                        style={[styles.controlButton, !isSpeakerEnabled ? styles.speakerOffButton : styles.speakerButton]}
-                        onPress={() => setIsSpeakerEnabled(!isSpeakerEnabled)}
-                    >
-                        <Text style={styles.controlButtonText}>{isSpeakerEnabled ? '🔊' : '🔕'}</Text>
+                    <TouchableOpacity style={[styles.controlButton, styles.speakerButton]}>
+                        <Text style={styles.controlButtonText}>🔊</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Session Info */}
                 <View style={styles.sessionInfo}>
                     <Text style={styles.sessionInfoText}>Session: {activeCall.sessionId}</Text>
-                    <Text style={styles.sessionInfoText}>
-                        Status: {isMuted ? 'Muted' : 'Unmuted'} | {isVideoEnabled ? 'Camera ON' : 'Camera OFF'}
-                    </Text>
+                    <Text style={styles.sessionInfoText}>Channel: {activeCall.channelName}</Text>
                 </View>
             </SafeAreaView>
         );
     }
 
-    // ✅ LOADING UI
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -574,7 +398,6 @@ export default function VideoChatScreen() {
         );
     }
 
-    // ✅ USERS LIST UI
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -620,11 +443,14 @@ export default function VideoChatScreen() {
                 <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Call Modal */}
-            <Modal visible={showCallModal} transparent animationType="slide">
+            <Modal
+                visible={showCallModal}
+                transparent
+                animationType="slide"
+            >
                 <View style={styles.modalOverlay}>
                     <View style={styles.callModal}>
-                        <Text style={styles.modalTitle}>Start Video Call</Text>
+                        <Text style={styles.modalTitle}>Start Call</Text>
                         <View style={styles.modalContent}>
                             <Text style={styles.modalText}>{selectedUser?.displayName}</Text>
                             <Text style={styles.modalEmail}>{selectedUser?.email}</Text>
@@ -798,6 +624,8 @@ const styles = StyleSheet.create({
         flex: 0.4,
         backgroundColor: '#1a1a1a',
         borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderWidth: 2,
         borderColor: '#007AFF',
     },
@@ -815,6 +643,10 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#fff',
         marginBottom: 8,
+    },
+    videoPlaceholderSubtext: {
+        fontSize: 14,
+        color: '#999',
     },
     callControls: {
         flexDirection: 'row',
@@ -834,23 +666,14 @@ const styles = StyleSheet.create({
     muteButton: {
         backgroundColor: '#4CAF50',
     },
-    mutedButton: {
-        backgroundColor: '#F44336',
-    },
     videoButton: {
         backgroundColor: '#4CAF50',
-    },
-    videoOffButton: {
-        backgroundColor: '#F44336',
     },
     endCallButton: {
         backgroundColor: '#F44336',
     },
     speakerButton: {
         backgroundColor: '#4CAF50',
-    },
-    speakerOffButton: {
-        backgroundColor: '#FF9800',
     },
     controlButtonText: {
         fontSize: 24,
