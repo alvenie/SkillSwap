@@ -40,8 +40,20 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📚</Text>,
                 }}
             />
+            <Tabs.Screen
+                name="profile"
+                options={{
+                    title: 'Profile',
+                    tabBarLabel: 'Profile',
+                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>👤</Text>,
+                }}
+            />
             <Tabs.Screen name="payment" options={{ href: null }} />
             <Tabs.Screen name="history" options={{ href: null }} />
+            <Tabs.Screen name="edit-profile" options={{ href: null }} />
+            <Tabs.Screen name="find-friends" options={{ href: null }} />
+            <Tabs.Screen name="friends-list" options={{ href: null }} />
+            <Tabs.Screen name="explore" options={{ href: null }} />
         </Tabs>
     );
 }

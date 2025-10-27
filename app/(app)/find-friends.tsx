@@ -2,86 +2,86 @@ import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
-    FlatList,
-    TouchableOpacity,
     StyleSheet,
-    TextInput,
-    ActivityIndicator,
-    Alert,
-    Modal,
     ScrollView,
+    TouchableOpacity,
+    Alert,
+    ActivityIndicator,
+    TextInput,
+    Modal,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
+import {
+    collection,
+    query,
+    where,
+    getDocs,
+    addDoc,
+    doc,
+    getDoc,
+} from 'firebase/firestore';
+import { useRouter } from 'expo-router';
 
-interface UserWithSkills {
-    id: string;
+interface UserProfile {
     uid: string;
-    displayName: string;
     email: string;
+    displayName: string;
+    bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    bio?: string;
     location?: string;
     status: 'online' | 'offline' | 'in-call';
 }
 
-export default function BrowseSkillsScreen() {
-    const [users, setUsers] = useState<UserWithSkills[]>([]);
-    const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
+export default function FindFriendsScreen() {
+    const { user } = useAuth();
+    const router = useRouter();
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
-    const [sentRequests, setSentRequests] = useState<string[]>([]);
-    const [existingFriends, setExistingFriends] = useState<string[]>([]);
-    const [selectedUser, setSelectedUser] = useState<UserWithSkills | null>(null);
+    const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
-    const router = useRouter();
-    const { user } = useAuth();
+    const [sentRequests, setSentRequests] = useState<string[]>([]);
+    const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
     useEffect(() => {
-        fetchUsersWithSkills();
+        loadUsers();
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
-    const fetchUsersWithSkills = async () => {
+    const loadUsers = async () => {
         try {
             setLoading(true);
             const usersRef = collection(db, 'users');
             const querySnapshot = await getDocs(usersRef);
-            const usersData: UserWithSkills[] = [];
 
+            const usersData: UserProfile[] = [];
             querySnapshot.forEach((doc) => {
                 if (doc.id !== user?.uid) {
                     const data = doc.data();
-                    // Only show users who have skills listed
-                    if (
-                        (data.skillsTeaching && data.skillsTeaching.length > 0) ||
-                        (data.skillsLearning && data.skillsLearning.length > 0)
-                    ) {
-                        usersData.push({
-                            id: doc.id,
-                            uid: doc.id,
-                            displayName: data.displayName || data.email || 'User',
-                            email: data.email || '',
-                            skillsTeaching: data.skillsTeaching || [],
-                            skillsLearning: data.skillsLearning || [],
-                            bio: data.bio || '',
-                            location: data.location || '',
-                            status: data.status || 'offline',
-                        });
-                    }
+                    usersData.push({
+                        uid: doc.id,
+                        email: data.email || '',
+                        displayName: data.displayName || data.email || 'User',
+                        bio: data.bio || '',
+                        skillsTeaching: data.skillsTeaching || [],
+                        skillsLearning: data.skillsLearning || [],
+                        location: data.location || '',
+                        status: data.status || 'offline',
+                    });
                 }
             });
 
             setUsers(usersData);
             setFilteredUsers(usersData);
-        } catch (error) {
-            console.error('Error fetching users:', error);
+        } catch (error: any) {
+            console.error('Error loading users:', error);
             Alert.alert('Error', 'Failed to load users');
         } finally {
             setLoading(false);
@@ -151,7 +151,7 @@ export default function BrowseSkillsScreen() {
         }
     };
 
-    const openRequestModal = (targetUser: UserWithSkills) => {
+    const openRequestModal = (targetUser: UserProfile) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
@@ -163,9 +163,11 @@ export default function BrowseSkillsScreen() {
         try {
             setSending(true);
 
+            // Get current user's profile
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
 
+            // Create friend request
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: user.uid,
                 fromUserName: currentUserData?.displayName || user.email || 'User',
@@ -194,32 +196,30 @@ export default function BrowseSkillsScreen() {
         }
     };
 
-    const handleBookSkill = (targetUser: UserWithSkills, skill: string) => {
-        if (!user) {
-            Alert.alert('Error', 'Please login first');
-            return;
-        }
+    const getSkillMatches = (targetUser: UserProfile) => {
+        if (!user) return { canTeach: [], wantsToLearn: [] };
 
-        // Navigate to payment with skill info
-        router.push({
-            pathname: '/(app)/payment',
-            params: {
-                skillName: skill,
-                skillPrice: '50',
-                skillDuration: '1 hour',
-                instructor: targetUser.displayName,
-                instructorEmail: targetUser.email,
-            },
-        });
+        // Load current user's skills from state or fetch
+        const canTeach = targetUser.skillsLearning.filter((skill) =>
+            // This would need current user's teaching skills
+            false
+        );
+
+        const wantsToLearn = targetUser.skillsTeaching.filter((skill) =>
+            // This would need current user's learning skills
+            false
+        );
+
+        return { canTeach, wantsToLearn };
     };
 
-    const renderUserCard = (targetUser: UserWithSkills) => {
+    const renderUserCard = (targetUser: UserProfile) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
         const isOnline = targetUser.status === 'online';
 
         return (
-            <View style={styles.card}>
+            <View key={targetUser.uid} style={styles.userCard}>
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
@@ -247,52 +247,44 @@ export default function BrowseSkillsScreen() {
                     </View>
                 </View>
 
-                {/* Skills Teaching */}
+                {/* Skills */}
                 {targetUser.skillsTeaching.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>🎓 Can teach:</Text>
                         <View style={styles.skillsContainer}>
-                            {targetUser.skillsTeaching.slice(0, 4).map((skill, index) => (
-                                <TouchableOpacity
-                                    key={index}
-                                    style={[styles.skillChip, styles.teachingChip]}
-                                    onPress={() => handleBookSkill(targetUser, skill)}
-                                >
+                            {targetUser.skillsTeaching.slice(0, 3).map((skill, index) => (
+                                <View key={index} style={[styles.skillChip, styles.teachingChip]}>
                                     <Text style={styles.skillChipText}>{skill}</Text>
-                                </TouchableOpacity>
+                                </View>
                             ))}
-                            {targetUser.skillsTeaching.length > 4 && (
+                            {targetUser.skillsTeaching.length > 3 && (
                                 <Text style={styles.moreSkills}>
-                                    +{targetUser.skillsTeaching.length - 4} more
+                                    +{targetUser.skillsTeaching.length - 3} more
                                 </Text>
                             )}
                         </View>
                     </View>
                 )}
 
-                {/* Skills Learning */}
                 {targetUser.skillsLearning.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>📚 Wants to learn:</Text>
                         <View style={styles.skillsContainer}>
-                            {targetUser.skillsLearning.slice(0, 4).map((skill, index) => (
-                                <View
-                                    key={index}
-                                    style={[styles.skillChip, styles.learningChip]}
-                                >
+                            {targetUser.skillsLearning.slice(0, 3).map((skill, index) => (
+                                <View key={index} style={[styles.skillChip, styles.learningChip]}>
                                     <Text style={styles.skillChipText}>{skill}</Text>
                                 </View>
                             ))}
-                            {targetUser.skillsLearning.length > 4 && (
+                            {targetUser.skillsLearning.length > 3 && (
                                 <Text style={styles.moreSkills}>
-                                    +{targetUser.skillsLearning.length - 4} more
+                                    +{targetUser.skillsLearning.length - 3} more
                                 </Text>
                             )}
                         </View>
                     </View>
                 )}
 
-                {/* Action Buttons */}
+                {/* Action Button */}
                 <View style={styles.actionContainer}>
                     {isFriend ? (
                         <View style={styles.friendBadge}>
@@ -307,7 +299,7 @@ export default function BrowseSkillsScreen() {
                             style={styles.addFriendButton}
                             onPress={() => openRequestModal(targetUser)}
                         >
-                            <Text style={styles.addFriendButtonText}>+ Connect</Text>
+                            <Text style={styles.addFriendButtonText}>+ Add Friend</Text>
                         </TouchableOpacity>
                     )}
                 </View>
@@ -317,53 +309,63 @@ export default function BrowseSkillsScreen() {
 
     if (loading) {
         return (
-            <View style={styles.container}>
-                <ActivityIndicator size="large" color="#007AFF" />
-            </View>
+            <SafeAreaView style={styles.container}>
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                </View>
+            </SafeAreaView>
         );
     }
 
     return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.title}>Browse Skills</Text>
-                <TextInput
-                    style={styles.searchBox}
-                    placeholder="Search by name or skills..."
-                    value={searchText}
-                    onChangeText={handleSearch}
-                    placeholderTextColor="#999"
-                />
-            </View>
-
-            {filteredUsers.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>
-                        {searchText ? 'No users found' : 'No users with skills yet'}
-                    </Text>
+        <SafeAreaView style={styles.container}>
+            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Text style={styles.backButtonText}>←</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.title}>Find Friends</Text>
+                    <View style={{ width: 40 }} />
                 </View>
-            ) : (
-                <FlatList
-                    data={filteredUsers}
-                    renderItem={({ item }) => renderUserCard(item)}
-                    keyExtractor={(item) => item.id}
-                    contentContainerStyle={styles.list}
-                />
-            )}
+
+                <View style={styles.searchContainer}>
+                    <TextInput
+                        style={styles.searchBox}
+                        placeholder="Search by name, skills, or bio..."
+                        value={searchText}
+                        onChangeText={handleSearch}
+                        placeholderTextColor="#999"
+                    />
+                </View>
+
+                <Text style={styles.resultCount}>
+                    {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'} found
+                </Text>
+
+                {filteredUsers.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>No users found</Text>
+                    </View>
+                ) : (
+                    filteredUsers.map(renderUserCard)
+                )}
+
+                <View style={styles.bottomSpacer} />
+            </ScrollView>
 
             {/* Friend Request Modal */}
             <Modal visible={showRequestModal} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Connect & Learn</Text>
+                            <Text style={styles.modalTitle}>Send Friend Request</Text>
                             <TouchableOpacity onPress={() => setShowRequestModal(false)}>
                                 <Text style={styles.modalCloseText}>✕</Text>
                             </TouchableOpacity>
                         </View>
 
                         {selectedUser && (
-                            <ScrollView style={styles.modalBody}>
+                            <View style={styles.modalBody}>
                                 <View style={styles.modalUserInfo}>
                                     <View style={styles.modalAvatar}>
                                         <Text style={styles.modalAvatarText}>
@@ -382,11 +384,11 @@ export default function BrowseSkillsScreen() {
 
                                 <View style={styles.messageSection}>
                                     <Text style={styles.messageLabel}>
-                                        Introduce yourself (optional)
+                                        Add a message (optional)
                                     </Text>
                                     <TextInput
                                         style={styles.messageInput}
-                                        placeholder="Hi! I'd love to learn from you and share my skills..."
+                                        placeholder="Hi! I'd like to connect and exchange skills..."
                                         value={requestMessage}
                                         onChangeText={setRequestMessage}
                                         multiline
@@ -418,12 +420,12 @@ export default function BrowseSkillsScreen() {
                                         )}
                                     </TouchableOpacity>
                                 </View>
-                            </ScrollView>
+                            </View>
                         )}
                     </View>
                 </View>
             </Modal>
-        </View>
+        </SafeAreaView>
     );
 }
 
@@ -432,36 +434,70 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f5f5f5',
     },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    content: {
+        flex: 1,
+    },
     header: {
-        backgroundColor: '#fff',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         padding: 20,
-        paddingTop: 60,
+        paddingTop: 10,
+        backgroundColor: '#fff',
         borderBottomWidth: 1,
         borderBottomColor: '#e0e0e0',
     },
+    backButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    backButtonText: {
+        fontSize: 24,
+        color: '#007AFF',
+        fontWeight: 'bold',
+    },
     title: {
-        fontSize: 28,
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#333',
-        marginBottom: 16,
+    },
+    searchContainer: {
+        padding: 20,
+        paddingBottom: 12,
     },
     searchBox: {
-        backgroundColor: '#f0f0f0',
-        borderRadius: 8,
+        backgroundColor: '#fff',
+        borderRadius: 12,
         padding: 12,
-        fontSize: 14,
+        fontSize: 16,
+        borderWidth: 1,
+        borderColor: '#ddd',
         color: '#333',
     },
-    list: {
-        padding: 16,
-        paddingBottom: 32,
+    resultCount: {
+        fontSize: 14,
+        color: '#666',
+        paddingHorizontal: 20,
+        marginBottom: 12,
     },
-    card: {
+    userCard: {
         backgroundColor: '#fff',
         borderRadius: 12,
         padding: 16,
+        marginHorizontal: 20,
         marginBottom: 16,
-        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
     userHeader: {
         flexDirection: 'row',
@@ -506,7 +542,7 @@ const styles = StyleSheet.create({
     location: {
         fontSize: 13,
         color: '#666',
-        marginBottom: 4,
+        marginBottom: 6,
     },
     bio: {
         fontSize: 14,
@@ -531,8 +567,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 12,
-        marginRight: 6,
-        marginBottom: 6,
     },
     teachingChip: {
         backgroundColor: '#E3F2FD',
@@ -549,6 +583,7 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#999',
         alignSelf: 'center',
+        marginLeft: 4,
     },
     actionContainer: {
         marginTop: 12,
@@ -590,13 +625,16 @@ const styles = StyleSheet.create({
         fontSize: 15,
     },
     emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
     },
     emptyText: {
         fontSize: 16,
         color: '#999',
+    },
+    bottomSpacer: {
+        height: 40,
     },
     modalOverlay: {
         flex: 1,
@@ -607,7 +645,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        maxHeight: '70%',
+        paddingBottom: 40,
     },
     modalHeader: {
         flexDirection: 'row',
@@ -682,7 +720,6 @@ const styles = StyleSheet.create({
     modalButtons: {
         flexDirection: 'row',
         gap: 12,
-        marginBottom: 20,
     },
     modalButton: {
         flex: 1,
