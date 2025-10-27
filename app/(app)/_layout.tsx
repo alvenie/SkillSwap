@@ -1,6 +1,4 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
-import { Text } from 'react-native';
 
 export default function TabLayout() {
     return (
@@ -9,32 +7,11 @@ export default function TabLayout() {
                 tabBarActiveTintColor: '#007AFF',
                 headerShown: false,
             }}>
-            <Tabs.Screen
-                name="index"
-                options={{
-                    title: 'Home',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>🏠</Text>,
-                }}
-            />
-            <Tabs.Screen
-                name="explore"
-                options={{
-                    title: 'Explore',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>🔍</Text>,
-                }}
-            />
-            <Tabs.Screen
-                name="payment"
-                options={{
-                    href: null, // Hide from tabs
-                }}
-            />
-            <Tabs.Screen
-                name="history"
-                options={{
-                    href: null, // Hide from tabs
-                }}
-            />
+            <Tabs.Screen name="index" options={{ title: 'Home', tabBarLabel: 'Home' }} />
+            <Tabs.Screen name="browse-skills" options={{ title: 'Browse', tabBarLabel: 'Browse' }} />
+            <Tabs.Screen name="manage-skills" options={{ title: 'My Skills', tabBarLabel: 'My Skills' }} />
+            <Tabs.Screen name="payment" options={{ href: null }} />
+            <Tabs.Screen name="history" options={{ href: null }} />
         </Tabs>
     );
 }

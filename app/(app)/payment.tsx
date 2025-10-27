@@ -179,11 +179,11 @@ export default function PaymentScreen() {
                     [
                         {
                             text: 'View History',
-                            onPress: () => router.push('/(app)/history'),
+                            onPress: () => router.push('/history'),
                         },
                         {
                             text: 'Done',
-                            onPress: () => router.replace('/(app)'),
+                            onPress: () => router.replace('/'),
                         },
                     ]
                 );
