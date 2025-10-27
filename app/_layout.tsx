@@ -46,7 +46,7 @@ export default function RootLayout() {
         <AuthProvider>
             <StripeProvider
                 publishableKey={STRIPE_PUBLISHABLE_KEY}
-                merchantIdentifier="merchant.com.skillswap" // Optional for Apple Pay
+                merchantIdentifier="merchant.com.skillswap"
             >
                 <RootLayoutNav />
             </StripeProvider>

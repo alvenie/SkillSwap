@@ -1,9 +1,10 @@
 import React from 'react';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
+import { updateDoc, doc } from 'firebase/firestore';
 import { Alert, StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { auth } from '../../firebaseConfig';
+import { auth, db } from '../../firebaseConfig';
 
 export default function HomeScreen() {
     const { user } = useAuth();
@@ -17,6 +18,13 @@ export default function HomeScreen() {
                 style: 'destructive',
                 onPress: async () => {
                     try {
+                        // ✅ UPDATE USER STATUS TO OFFLINE
+                        if (user) {
+                            await updateDoc(doc(db, 'users', user.uid), {
+                                status: 'offline',
+                                lastSeen: new Date().toISOString(),
+                            });
+                        }
                         await signOut(auth);
                     } catch (error: any) {
                         Alert.alert('Error', error.message);
@@ -50,6 +58,19 @@ export default function HomeScreen() {
                     <View style={styles.cardText}>
                         <Text style={styles.cardTitle}>Payment History</Text>
                         <Text style={styles.cardSubtitle}>View transactions</Text>
+                    </View>
+                    <Text style={styles.arrow}>→</Text>
+                </TouchableOpacity>
+
+                {/* Video Chat - NEW */}
+                <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => router.push('./video-chat')}
+                >
+                    <Text style={styles.cardIcon}>📹</Text>
+                    <View style={styles.cardText}>
+                        <Text style={styles.cardTitle}>Video Chat</Text>
+                        <Text style={styles.cardSubtitle}>Call other users</Text>
                     </View>
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>
