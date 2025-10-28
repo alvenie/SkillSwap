@@ -6,10 +6,12 @@ import { Alert, StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'rea
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
+// main home screen with navigation to all app features
 export default function HomeScreen() {
     const { user } = useAuth();
     const router = useRouter();
 
+    // sign out with confirmation and update user status
     const handleSignOut = async () => {
         Alert.alert('Sign Out', 'Are you sure?', [
             { text: 'Cancel', style: 'cancel' },
@@ -18,6 +20,7 @@ export default function HomeScreen() {
                 style: 'destructive',
                 onPress: async () => {
                     try {
+                        // update user status to offline before signing out
                         if (user) {
                             await updateDoc(doc(db, 'users', user.uid), {
                                 status: 'offline',
@@ -35,6 +38,7 @@ export default function HomeScreen() {
 
     return (
         <View style={styles.container}>
+            {/* header with welcome message and sign out */}
             <View style={styles.header}>
                 <View>
                     <Text style={styles.welcomeText}>Welcome!</Text>
@@ -48,7 +52,9 @@ export default function HomeScreen() {
             <ScrollView style={styles.content}>
                 <Text style={styles.title}>Skills Marketplace</Text>
 
-                {/* Skills - Browse & Manage */}
+                {/* navigation cards for main app features */}
+
+                {/* skills section - browse and manage skills */}
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => router.push('/(app)/skills')}
@@ -61,7 +67,7 @@ export default function HomeScreen() {
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>
 
-                {/* Messages */}
+                {/* messaging feature */}
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => router.push('/(app)/chat-list')}
@@ -74,7 +80,7 @@ export default function HomeScreen() {
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>
 
-                {/* Payment History */}
+                {/* payment history */}
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => router.push('/(app)/history')}
@@ -87,7 +93,7 @@ export default function HomeScreen() {
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>
 
-                {/* Video Chat */}
+                {/* video calling feature */}
                 <TouchableOpacity
                     style={styles.card}
                     onPress={() => router.push('/(app)/video-chat')}

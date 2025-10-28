@@ -1,13 +1,19 @@
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 
+// main tab navigation layout for the app
 export default function TabLayout() {
     return (
         <Tabs
+            // global tab bar styling
             screenOptions={{
-                tabBarActiveTintColor: '#007AFF',
-                headerShown: false,
+                tabBarActiveTintColor: '#007AFF', // iOS blue for active tabs
+                headerShown: false, // we handle headers in individual screens
             }}>
+
+            {/* visible tabs in the bottom navigation */}
+
+            {/* home screen - main landing page */}
             <Tabs.Screen
                 name="index"
                 options={{
@@ -16,6 +22,8 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
                 }}
             />
+
+            {/* skills screen - view and manage user skills */}
             <Tabs.Screen
                 name="skills"
                 options={{
@@ -24,6 +32,8 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
                 }}
             />
+
+            {/* chat list - all conversations */}
             <Tabs.Screen
                 name="chat-list"
                 options={{
@@ -32,6 +42,8 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>💬</Text>,
                 }}
             />
+
+            {/* user profile and settings */}
             <Tabs.Screen
                 name="profile"
                 options={{
@@ -40,7 +52,9 @@ export default function TabLayout() {
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>👤</Text>,
                 }}
             />
-            {/* Hidden routes */}
+
+            {/* hidden routes - accessible via navigation but not shown in tab bar */}
+            {/* href: null removes them from the visible tabs */}
             <Tabs.Screen name="video-chat" options={{ href: null }} />
             <Tabs.Screen name="payment" options={{ href: null }} />
             <Tabs.Screen name="history" options={{ href: null }} />

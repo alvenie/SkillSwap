@@ -16,6 +16,7 @@ import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 
+// payment transaction record structure
 interface PaymentHistory {
     id: string;
     skillName: string;
@@ -29,13 +30,14 @@ interface PaymentHistory {
     instructorFee?: number;
 }
 
+// screen showing user's past payment transactions
 export default function PaymentHistoryScreen() {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [history, setHistory] = useState<PaymentHistory[]>([]);
 
-    // Reload when screen comes into focus
+    // reload history when screen comes into focus
     useFocusEffect(
         useCallback(() => {
             loadPaymentHistory();
@@ -46,6 +48,7 @@ export default function PaymentHistoryScreen() {
         loadPaymentHistory();
     }, []);
 
+    // fetch payment history from firestore
     const loadPaymentHistory = async () => {
         if (!user) {
             setLoading(false);
@@ -56,6 +59,7 @@ export default function PaymentHistoryScreen() {
             console.log('📥 Loading payment history for:', user.uid);
 
             const paymentsRef = collection(db, 'payments');
+            // get all user's payments sorted by newest first
             const q = query(
                 paymentsRef,
                 where('userId', '==', user.uid),
@@ -85,6 +89,7 @@ export default function PaymentHistoryScreen() {
             setHistory(payments);
         } catch (error: any) {
             console.error('❌ Error loading history:', error);
+            // handle missing firestore index error
             if (error.code === 'failed-precondition') {
                 Alert.alert(
                     'Database Setup Required',
@@ -104,6 +109,7 @@ export default function PaymentHistoryScreen() {
         loadPaymentHistory();
     };
 
+    // get color for payment status badge
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'completed':
@@ -119,6 +125,7 @@ export default function PaymentHistoryScreen() {
         }
     };
 
+    // format date to readable string
     const formatDate = (dateString: string) => {
         try {
             const date = new Date(dateString);
@@ -134,6 +141,7 @@ export default function PaymentHistoryScreen() {
         }
     };
 
+    // show detailed payment info in alert
     const handleViewDetails = (payment: PaymentHistory) => {
         Alert.alert(
             'Payment Details',
@@ -149,6 +157,7 @@ export default function PaymentHistoryScreen() {
         );
     };
 
+    // show loading state
     if (loading) {
         return (
             <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -173,6 +182,7 @@ export default function PaymentHistoryScreen() {
                     />
                 }
             >
+                {/* header with title and transaction count */}
                 <View style={styles.header}>
                     <Text style={styles.title}>Payment History</Text>
                     <Text style={styles.subtitle}>
@@ -180,6 +190,7 @@ export default function PaymentHistoryScreen() {
                     </Text>
                 </View>
 
+                {/* show empty state or payment cards */}
                 {history.length === 0 ? (
                     <View style={styles.emptyContainer}>
                         <Text style={styles.emptyIcon}>📋</Text>
@@ -196,6 +207,7 @@ export default function PaymentHistoryScreen() {
                             onPress={() => handleViewDetails(payment)}
                             activeOpacity={0.7}
                         >
+                            {/* payment header with skill and status */}
                             <View style={styles.paymentHeader}>
                                 <View style={styles.paymentInfo}>
                                     <Text style={styles.skillName}>{payment.skillName}</Text>
@@ -218,6 +230,7 @@ export default function PaymentHistoryScreen() {
                                 </View>
                             </View>
 
+                            {/* payment details summary */}
                             <View style={styles.paymentDetails}>
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>📅 Date:</Text>

@@ -20,6 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
 
+// Structure for a skill listing
 interface Skill {
     id: string;
     userId: string;
@@ -40,17 +41,19 @@ type TabType = 'browse' | 'manage';
 export default function SkillsScreen() {
     const { user } = useAuth();
     const router = useRouter();
+
+    // Main tab state - switches between browsing skills and managing your own
     const [activeTab, setActiveTab] = useState<TabType>('browse');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    // Browse tab state
+    // Browse tab state - for discovering skills from others
     const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
     const [filteredSkills, setFilteredSkills] = useState<Skill[]>([]);
     const [searchText, setSearchText] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-    // Manage tab state
+    // Manage tab state - for handling your own skills
     const [mySkills, setMySkills] = useState<Skill[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
@@ -63,19 +66,23 @@ export default function SkillsScreen() {
         isAvailable: true,
     });
 
+    // Predefined categories and durations
     const CATEGORIES = ['All', 'Music', 'Technology', 'Language', 'Fitness', 'Arts', 'Business', 'Other'];
     const DURATIONS = ['30 mins', '1 hour', '1.5 hours', '2 hours', '3 hours', 'Custom'];
 
+    // Reload skills when screen comes into focus
     useFocusEffect(
         useCallback(() => {
             loadSkills();
         }, [activeTab])
     );
 
+    // Also load when tab changes
     useEffect(() => {
         loadSkills();
     }, [activeTab]);
 
+    // Main function to fetch skills from database
     const loadSkills = async () => {
         if (!user) {
             setLoading(false);
@@ -87,12 +94,13 @@ export default function SkillsScreen() {
             const skillsRef = collection(db, 'skills');
 
             if (activeTab === 'browse') {
-                // Load all available skills from other users
+                // Browse mode: get all available skills except your own
                 const q = query(skillsRef, where('isAvailable', '==', true));
                 const querySnapshot = await getDocs(q);
 
                 const skills: Skill[] = [];
                 querySnapshot.forEach((doc) => {
+                    // Filter out user's own skills from browse view
                     if (doc.data().userId !== user.uid) {
                         skills.push({
                             id: doc.id,
@@ -104,7 +112,7 @@ export default function SkillsScreen() {
                 setAvailableSkills(skills);
                 setFilteredSkills(skills);
             } else {
-                // Load user's own skills
+                // Manage mode: get only your skills
                 const q = query(skillsRef, where('userId', '==', user.uid));
                 const querySnapshot = await getDocs(q);
 
@@ -116,6 +124,7 @@ export default function SkillsScreen() {
                     } as Skill);
                 });
 
+                // Sort by newest first
                 setMySkills(skills.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
             }
         } catch (error: any) {
@@ -127,23 +136,28 @@ export default function SkillsScreen() {
         }
     };
 
+    // Handle search input changes
     const handleSearch = (text: string) => {
         setSearchText(text);
         filterSkills(text, selectedCategory);
     };
 
+    // Handle category filter selection
     const handleCategoryFilter = (category: string) => {
         setSelectedCategory(category);
         filterSkills(searchText, category);
     };
 
+    // Filter skills based on search text and category
     const filterSkills = (search: string, category: string) => {
         let filtered = availableSkills;
 
+        // Apply category filter first
         if (category !== 'All') {
             filtered = filtered.filter(skill => skill.category === category);
         }
 
+        // Then apply search filter if there's text
         if (search.trim()) {
             filtered = filtered.filter(skill =>
                 skill.skillName.toLowerCase().includes(search.toLowerCase()) ||
@@ -155,6 +169,7 @@ export default function SkillsScreen() {
         setFilteredSkills(filtered);
     };
 
+    // Navigate to payment screen when user wants to book
     const handleBookSkill = (skill: Skill) => {
         router.push({
             pathname: '/(app)/payment',
@@ -168,6 +183,7 @@ export default function SkillsScreen() {
         });
     };
 
+    // Open modal to add a new skill
     const handleAddSkill = () => {
         setEditingSkill(null);
         setFormData({
@@ -181,6 +197,7 @@ export default function SkillsScreen() {
         setShowModal(true);
     };
 
+    // Open modal to edit an existing skill
     const handleEditSkill = (skill: Skill) => {
         setEditingSkill(skill);
         setFormData({
@@ -194,12 +211,15 @@ export default function SkillsScreen() {
         setShowModal(true);
     };
 
+    // Save skill (either add new or update existing)
     const handleSaveSkill = async () => {
+        // Validate required fields
         if (!formData.skillName || !formData.category || !formData.price) {
             Alert.alert('Validation Error', 'Please fill in all required fields');
             return;
         }
 
+        // Validate price is a valid number
         const price = parseFloat(formData.price);
         if (isNaN(price) || price < 0) {
             Alert.alert('Validation Error', 'Please enter a valid price');
@@ -218,9 +238,11 @@ export default function SkillsScreen() {
             };
 
             if (editingSkill) {
+                // Update existing skill
                 await updateDoc(doc(db, 'skills', editingSkill.id), skillData);
                 Alert.alert('Success', 'Skill updated successfully!');
             } else {
+                // Create new skill
                 await addDoc(collection(db, 'skills'), {
                     ...skillData,
                     userId: user?.uid,
@@ -239,6 +261,7 @@ export default function SkillsScreen() {
         }
     };
 
+    // Delete a skill with confirmation
     const handleDeleteSkill = (skillId: string, skillName: string) => {
         Alert.alert(
             'Delete Skill',
@@ -263,11 +286,13 @@ export default function SkillsScreen() {
         );
     };
 
+    // Pull-to-refresh handler
     const onRefresh = () => {
         setRefreshing(true);
         loadSkills();
     };
 
+    // Get color for each category badge
     const getCategoryColor = (category: string) => {
         const colors: Record<string, string> = {
             Music: '#FF6B6B',
@@ -281,6 +306,7 @@ export default function SkillsScreen() {
         return colors[category] || '#999';
     };
 
+    // Format date string nicely
     const formatDate = (dateString: string) => {
         try {
             const date = new Date(dateString);
@@ -294,6 +320,7 @@ export default function SkillsScreen() {
         }
     };
 
+    // Render the Browse tab (marketplace of skills)
     const renderBrowseTab = () => (
         <>
             {/* Search Bar */}
@@ -307,7 +334,7 @@ export default function SkillsScreen() {
                 />
             </View>
 
-            {/* Category Filter */}
+            {/* Category Filter - horizontal scrollable pills */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -335,7 +362,7 @@ export default function SkillsScreen() {
                 ))}
             </ScrollView>
 
-            {/* Skills Grid */}
+            {/* Skills Grid - shows filtered results */}
             {filteredSkills.length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyIcon}>🔍</Text>
@@ -348,6 +375,7 @@ export default function SkillsScreen() {
                 <View style={styles.skillsGrid}>
                     {filteredSkills.map((skill) => (
                         <View key={skill.id} style={styles.skillCard}>
+                            {/* Category badge with dynamic color */}
                             <View
                                 style={[
                                     styles.categoryBadge,
@@ -371,6 +399,7 @@ export default function SkillsScreen() {
                                 {skill.description || 'No description provided'}
                             </Text>
 
+                            {/* Price and duration info */}
                             <View style={styles.skillCardFooter}>
                                 <View>
                                     <Text style={styles.priceLabel}>Price</Text>
@@ -382,6 +411,7 @@ export default function SkillsScreen() {
                                 </View>
                             </View>
 
+                            {/* Book button */}
                             <TouchableOpacity
                                 style={styles.bookButton}
                                 onPress={() => handleBookSkill(skill)}
@@ -395,6 +425,7 @@ export default function SkillsScreen() {
         </>
     );
 
+    // Render the Manage tab (your own skills)
     const renderManageTab = () => (
         <>
             <View style={styles.manageHeader}>
@@ -407,6 +438,7 @@ export default function SkillsScreen() {
             </View>
 
             {mySkills.length === 0 ? (
+                // Empty state when user hasn't added any skills yet
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyIcon}>📚</Text>
                     <Text style={styles.emptyText}>No skills yet</Text>
@@ -418,6 +450,7 @@ export default function SkillsScreen() {
                     </TouchableOpacity>
                 </View>
             ) : (
+                // List of user's skills with edit/delete options
                 <View style={styles.skillsList}>
                     {mySkills.map((skill) => (
                         <View key={skill.id} style={styles.mySkillCard}>
@@ -443,9 +476,11 @@ export default function SkillsScreen() {
                                         {skill.description || 'No description provided'}
                                     </Text>
                                 </View>
+                                {/* Green dot if skill is active/available */}
                                 {skill.isAvailable && <Text style={styles.activeIndicator}>🟢</Text>}
                             </View>
 
+                            {/* Skill details section */}
                             <View style={styles.mySkillDetails}>
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>💵 Price:</Text>
@@ -461,6 +496,7 @@ export default function SkillsScreen() {
                                 </View>
                             </View>
 
+                            {/* Edit and Delete buttons */}
                             <View style={styles.actionButtons}>
                                 <TouchableOpacity
                                     style={[styles.actionButton, styles.editButton]}
@@ -482,6 +518,7 @@ export default function SkillsScreen() {
         </>
     );
 
+    // Show loading spinner while fetching
     if (loading) {
         return (
             <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -518,6 +555,7 @@ export default function SkillsScreen() {
                 </View>
             </View>
 
+            {/* Main content area - switches based on active tab */}
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
@@ -529,7 +567,7 @@ export default function SkillsScreen() {
                 <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Add/Edit Modal */}
+            {/* Add/Edit Modal - full screen form for creating or editing skills */}
             <Modal visible={showModal} animationType="slide" onRequestClose={() => setShowModal(false)}>
                 <SafeAreaView style={styles.modalContainer}>
                     <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
@@ -543,6 +581,7 @@ export default function SkillsScreen() {
                             <View style={{ width: 40 }} />
                         </View>
 
+                        {/* Skill Name Input */}
                         <View style={styles.formGroup}>
                             <Text style={styles.formLabel}>Skill Name *</Text>
                             <TextInput
@@ -554,6 +593,7 @@ export default function SkillsScreen() {
                             />
                         </View>
 
+                        {/* Category Selection */}
                         <View style={styles.formGroup}>
                             <Text style={styles.formLabel}>Category *</Text>
                             <View style={styles.categoryModalContainer}>
@@ -579,6 +619,7 @@ export default function SkillsScreen() {
                             </View>
                         </View>
 
+                        {/* Description Input */}
                         <View style={styles.formGroup}>
                             <Text style={styles.formLabel}>Description</Text>
                             <TextInput
@@ -592,6 +633,7 @@ export default function SkillsScreen() {
                             />
                         </View>
 
+                        {/* Price and Duration Row */}
                         <View style={styles.formRow}>
                             <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
                                 <Text style={styles.formLabel}>Price ($) *</Text>
@@ -610,6 +652,7 @@ export default function SkillsScreen() {
                                 <TouchableOpacity
                                     style={styles.durationSelect}
                                     onPress={() => {
+                                        // Show duration picker using Alert
                                         Alert.alert(
                                             'Select Duration',
                                             '',
@@ -625,6 +668,7 @@ export default function SkillsScreen() {
                             </View>
                         </View>
 
+                        {/* Availability Toggle */}
                         <View style={styles.formGroup}>
                             <View style={styles.switchRow}>
                                 <Text style={styles.formLabel}>Make Available</Text>
@@ -637,6 +681,7 @@ export default function SkillsScreen() {
                             </View>
                         </View>
 
+                        {/* Save and Cancel Buttons */}
                         <View style={styles.modalButtonContainer}>
                             <TouchableOpacity
                                 style={[styles.modalButton, styles.cancelButton]}
@@ -692,6 +737,7 @@ const styles = StyleSheet.create({
         color: '#333',
         marginBottom: 16,
     },
+    // Tab switcher styling
     tabContainer: {
         flexDirection: 'row',
         backgroundColor: '#f0f0f0',
@@ -719,6 +765,7 @@ const styles = StyleSheet.create({
     content: {
         flex: 1,
     },
+    // Search bar styling
     searchContainer: {
         padding: 20,
         paddingBottom: 12,
@@ -732,6 +779,7 @@ const styles = StyleSheet.create({
         borderColor: '#ddd',
         color: '#333',
     },
+    // Category filter chips
     categoryScroll: {
         paddingHorizontal: 20,
         marginBottom: 20,
@@ -759,6 +807,7 @@ const styles = StyleSheet.create({
     categoryChipTextActive: {
         color: '#fff',
     },
+    // Skills grid for browse view
     skillsGrid: {
         paddingHorizontal: 20,
     },
@@ -842,6 +891,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
     },
+    // Manage tab styling
     manageHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -867,6 +917,7 @@ const styles = StyleSheet.create({
     skillsList: {
         paddingHorizontal: 20,
     },
+    // Your skills card styling
     mySkillCard: {
         backgroundColor: '#fff',
         borderRadius: 12,
@@ -949,6 +1000,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 14,
     },
+    // Empty state styling
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
@@ -983,6 +1035,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 16,
     },
+    // Modal/Form styling
     modalContainer: {
         flex: 1,
         backgroundColor: '#f5f5f5',

@@ -29,6 +29,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
 
+// message structure for chat
 interface Message {
     id: string;
     senderId: string;
@@ -38,15 +39,17 @@ interface Message {
     read: boolean;
 }
 
+// individual chat room screen for one-on-one conversations
 export default function ChatRoomScreen() {
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const params = useLocalSearchParams();
 
+    // get other user info from route params
     const otherUserId = params.otherUserId as string;
     const otherUserName = params.otherUserName as string;
 
-    // State for conversationId
+    // chat state
     const [conversationId, setConversationId] = useState<string>('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [messageText, setMessageText] = useState('');
@@ -55,12 +58,12 @@ export default function ChatRoomScreen() {
     const [conversationReady, setConversationReady] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    // ✅ FIX: Add refs to prevent multiple alerts
+    // refs to prevent duplicate error alerts
     const hasShownAuthError = useRef(false);
     const hasShownParamsError = useRef(false);
     const isInitializing = useRef(false);
 
-    // Set up conversationId when user is available
+    // generate or use existing conversation ID
     useEffect(() => {
         if (authLoading || !user) return;
 
@@ -71,14 +74,15 @@ export default function ChatRoomScreen() {
         setConversationId(finalConversationId);
     }, [authLoading, user, otherUserId, params.conversationId]);
 
+    // validate auth and params, then initialize the chat
     useEffect(() => {
-        // Wait for auth to load
+        // wait for auth to finish loading
         if (authLoading) {
             console.log('⏳ Waiting for auth to load...');
             return;
         }
 
-        // Check if user is authenticated - only show error once
+        // check authentication - show error only once
         if (!user) {
             if (!hasShownAuthError.current) {
                 hasShownAuthError.current = true;
@@ -90,7 +94,7 @@ export default function ChatRoomScreen() {
             return;
         }
 
-        // Validate required params - only show error once
+        // validate required params - show error only once
         if (!otherUserId) {
             if (!hasShownParamsError.current) {
                 hasShownParamsError.current = true;
@@ -108,13 +112,13 @@ export default function ChatRoomScreen() {
             return;
         }
 
-        // Wait for conversationId to be set
+        // wait for conversationId to be set
         if (!conversationId) {
             console.log('⏳ Waiting for conversation ID...');
             return;
         }
 
-        // ✅ FIX: Prevent multiple initializations
+        // prevent multiple initialization attempts
         if (isInitializing.current) {
             console.log('⏳ Already initializing...');
             return;
@@ -125,17 +129,17 @@ export default function ChatRoomScreen() {
         console.log('   Current User:', user.uid);
         console.log('   Other User:', otherUserId);
 
-        // Initialize conversation first, then set up listener
+        // initialize the conversation document
         initializeChat();
     }, [authLoading, user, conversationId, otherUserId]);
 
+    // set up real-time message listener once conversation is ready
     useEffect(() => {
-        // Only set up message listener after conversation is ready
         if (!conversationReady || !conversationId || !user) return;
 
         console.log('📡 Setting up message listener...');
 
-        // Set up real-time message listener
+        // listen to messages in this conversation
         const messagesRef = collection(db, 'conversations', conversationId, 'messages');
         const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
@@ -154,10 +158,10 @@ export default function ChatRoomScreen() {
                 setMessages(loadedMessages);
                 setLoading(false);
 
-                // Mark messages as read
+                // mark new messages as read
                 markMessagesAsRead(snapshot);
 
-                // Scroll to bottom
+                // auto-scroll to bottom when new messages arrive
                 setTimeout(() => {
                     flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
@@ -172,10 +176,11 @@ export default function ChatRoomScreen() {
         return () => unsubscribe();
     }, [conversationReady, conversationId, user]);
 
+    // create conversation document if it doesn't exist, or fix if corrupted
     const initializeChat = async () => {
         if (!user || !conversationId || !otherUserId || isInitializing.current) return;
 
-        // ✅ FIX: Mark as initializing
+        // mark as initializing to prevent duplicates
         isInitializing.current = true;
 
         try {
@@ -186,12 +191,12 @@ export default function ChatRoomScreen() {
             if (!conversationDoc.exists()) {
                 console.log('🆕 Creating new conversation...');
 
-                // Get current user's name
+                // get current user's display name
                 const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                 const currentUserData = currentUserDoc.data();
                 const currentUserName = currentUserData?.displayName || user.email || 'User';
 
-                // Get other user's name if not provided
+                // get other user's name if not provided in params
                 let otherName = otherUserName;
                 if (!otherName) {
                     const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
@@ -199,7 +204,7 @@ export default function ChatRoomScreen() {
                     otherName = otherUserData?.displayName || otherUserData?.email || 'User';
                 }
 
-                // Create conversation with all required fields
+                // create new conversation document with all fields
                 await setDoc(conversationRef, {
                     participants: [user.uid, otherUserId],
                     participantNames: {
@@ -221,14 +226,14 @@ export default function ChatRoomScreen() {
             } else {
                 console.log('✅ Conversation already exists');
 
-                // Ensure both users are participants (fix for existing conversations)
+                // fix participant list if needed (handles edge cases)
                 const data = conversationDoc.data();
                 const participants = data?.participants || [];
 
                 if (!participants.includes(user.uid) || !participants.includes(otherUserId)) {
                     console.log('🔧 Fixing participant list...');
 
-                    // Get user names
+                    // fetch user names again
                     const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                     const currentUserData = currentUserDoc.data();
                     const currentUserName = currentUserData?.displayName || user.email || 'User';
@@ -250,23 +255,25 @@ export default function ChatRoomScreen() {
                 }
             }
 
-            // Mark conversation as ready
+            // conversation is ready to use
             setConversationReady(true);
         } catch (error) {
             console.error('❌ Error initializing conversation:', error);
             Alert.alert('Error', 'Failed to initialize conversation. Please check Firestore permissions.');
             setLoading(false);
         } finally {
-            // ✅ FIX: Reset initializing flag
+            // reset flag so it can be retried if needed
             isInitializing.current = false;
         }
     };
 
+    // mark messages from other user as read
     const markMessagesAsRead = async (snapshot: any) => {
         if (!user) return;
 
         const batch: Promise<void>[] = [];
 
+        // find unread messages from the other user
         snapshot.forEach((doc: any) => {
             const data = doc.data();
             if (data.senderId !== user.uid && !data.read) {
@@ -276,11 +283,12 @@ export default function ChatRoomScreen() {
             }
         });
 
+        // update all unread messages
         if (batch.length > 0) {
             try {
                 await Promise.all(batch);
 
-                // Update unread count in conversation
+                // reset unread count in conversation document
                 const conversationRef = doc(db, 'conversations', conversationId);
                 await updateDoc(conversationRef, {
                     [`unreadCount.${user.uid}`]: 0,
@@ -291,22 +299,23 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // send a new message
     const handleSend = async () => {
         if (!messageText.trim() || !user || !conversationId || !conversationReady) return;
 
         const text = messageText.trim();
-        setMessageText('');
+        setMessageText(''); // clear input immediately for better UX
         setSending(true);
 
         try {
             console.log('📤 Sending message:', text);
 
-            // Get current user's name
+            // get current user's display name
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
             const currentUserName = currentUserData?.displayName || user.email || 'User';
 
-            // Add message with all required fields
+            // add message to messages subcollection
             const messagesRef = collection(db, 'conversations', conversationId, 'messages');
             await addDoc(messagesRef, {
                 senderId: user.uid,
@@ -316,10 +325,10 @@ export default function ChatRoomScreen() {
                 read: false,
             });
 
-            // Update conversation with last message
+            // update conversation document with latest message info
             const conversationRef = doc(db, 'conversations', conversationId);
 
-            // Get current unread count for other user
+            // increment unread count for the other user
             const conversationDoc = await getDoc(conversationRef);
             const conversationData = conversationDoc.data();
             const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
@@ -336,12 +345,13 @@ export default function ChatRoomScreen() {
         } catch (error) {
             console.error('❌ Error sending message:', error);
             Alert.alert('Error', 'Failed to send message. Please check your permissions.');
-            setMessageText(text); // Restore message
+            setMessageText(text); // restore message if send failed
         } finally {
             setSending(false);
         }
     };
 
+    // format timestamp for display (show time if today, date if older)
     const formatTime = (timestamp: any) => {
         if (!timestamp) return '';
 
@@ -352,11 +362,13 @@ export default function ChatRoomScreen() {
             const diffHours = Math.floor(diff / 3600000);
 
             if (diffHours < 24) {
+                // show time for messages within last 24 hours
                 return date.toLocaleTimeString('en-US', {
                     hour: 'numeric',
                     minute: '2-digit',
                 });
             } else {
+                // show date and time for older messages
                 return date.toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -369,6 +381,7 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // render individual message bubble
     const renderMessage = ({ item }: { item: Message }) => {
         const isMyMessage = item.senderId === user?.uid;
 
@@ -385,6 +398,7 @@ export default function ChatRoomScreen() {
                         isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble,
                     ]}
                 >
+                    {/* show sender name for messages from other user */}
                     {!isMyMessage && (
                         <Text style={styles.senderName}>{item.senderName}</Text>
                     )}
@@ -409,6 +423,7 @@ export default function ChatRoomScreen() {
         );
     };
 
+    // show loading state
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -429,6 +444,7 @@ export default function ChatRoomScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom']}>
+            {/* header with back button and other user's name */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Text style={styles.backButtonText}>←</Text>
@@ -442,6 +458,7 @@ export default function ChatRoomScreen() {
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 keyboardVerticalOffset={0}
             >
+                {/* show empty state or message list */}
                 {messages.length === 0 ? (
                     <View style={styles.emptyContainer}>
                         <Text style={styles.emptyIcon}>💬</Text>
@@ -463,6 +480,7 @@ export default function ChatRoomScreen() {
                     />
                 )}
 
+                {/* message input and send button */}
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.input}

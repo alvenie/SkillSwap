@@ -17,6 +17,7 @@ import { db } from '../../firebaseConfig';
 import { collection, addDoc } from 'firebase/firestore';
 
 export default function PaymentScreen() {
+    // Getting all the skill details passed from the previous screen
     const params = useLocalSearchParams();
     const router = useRouter();
     const { user } = useAuth();
@@ -24,15 +25,19 @@ export default function PaymentScreen() {
 
     const [loading, setLoading] = useState(false);
 
+    // Parse the booking details - using defaults in case something's missing
     const skillName = (params.skillName as string) || 'Skill Session';
     const skillPrice = parseFloat((params.skillPrice as string) || '50');
     const skillDuration = (params.skillDuration as string) || '1 hour';
     const instructor = (params.instructor as string) || 'Instructor';
 
+    // Calculate the total - we charge 5% platform fee
     const serviceFee = skillPrice * 0.05;
     const totalAmount = skillPrice + serviceFee;
 
+    // This is where all the payment magic happens
     const handleCreatePayment = async () => {
+        // Make sure user is logged in first
         if (!user) {
             Alert.alert('Error', 'You must be logged in to make a payment');
             return;
@@ -42,7 +47,7 @@ export default function PaymentScreen() {
         console.log('\n🚀 ========== PAYMENT FLOW START ==========');
 
         try {
-            // Step 1: Create customer
+            // STEP 1: Create a Stripe customer (optional but good for record keeping)
             let customerId: string | undefined;
             try {
                 console.log('👤 Step 1: Creating customer...');
@@ -54,10 +59,12 @@ export default function PaymentScreen() {
                 customerId = customer.customerId || customer.CustomerId;
                 console.log('✅ Customer ID:', customerId);
             } catch (error: any) {
+                // If customer creation fails, that's okay - we can still process payment
                 console.log('⚠️ Customer creation skipped:', error.message);
             }
 
-            // Step 2: Create payment intent
+            // STEP 2: Create the payment intent on our backend
+            // This is the most important part - it generates the secret we need for Stripe
             console.log('\n💳 Step 2: Creating payment intent...');
             console.log('   Amount:', totalAmount);
             console.log('   Currency: usd');
@@ -74,7 +81,7 @@ export default function PaymentScreen() {
             console.log('   Client Secret (length):', paymentData.clientSecret?.length);
             console.log('   Client Secret (starts with):', paymentData.clientSecret?.substring(0, 10));
 
-            // Validate the response
+            // Validate we got everything we need from the backend
             if (!paymentData.clientSecret) {
                 console.error('❌ ERROR: No client secret!');
                 Alert.alert('Error', 'Server did not return a payment secret');
@@ -89,7 +96,7 @@ export default function PaymentScreen() {
                 return;
             }
 
-            // Validate client secret format
+            // Double-check the client secret format - should start with "pi_"
             if (!paymentData.clientSecret.startsWith('pi_')) {
                 console.error('❌ ERROR: Invalid client secret format!');
                 console.error('   Expected to start with "pi_", got:', paymentData.clientSecret.substring(0, 10));
@@ -100,12 +107,13 @@ export default function PaymentScreen() {
 
             console.log('✅ Payment intent validated');
 
-            // Step 3: Initialize payment sheet
+            // STEP 3: Set up the Stripe payment sheet
             console.log('\n🔧 Step 3: Initializing Stripe Payment Sheet...');
 
             const initResult = await initPaymentSheet({
                 merchantDisplayName: 'SkillSwap',
                 paymentIntentClientSecret: paymentData.clientSecret,
+                // Pre-fill user info to make checkout faster
                 defaultBillingDetails: {
                     name: user.displayName || user.email || 'User',
                     email: user.email || '',
@@ -129,26 +137,29 @@ export default function PaymentScreen() {
             console.log('✅ Payment sheet initialized successfully');
             setLoading(false);
 
-            // Step 4: Present payment sheet
+            // STEP 4: Show the payment sheet to the user
             console.log('\n📱 Step 4: Presenting payment sheet...');
 
             const presentResult = await presentPaymentSheet();
 
+            // Handle what happens after user interacts with payment sheet
             if (presentResult.error) {
                 if (presentResult.error.code === 'Canceled') {
+                    // User just backed out - no big deal
                     console.log('ℹ️ User cancelled payment');
                     Alert.alert('Cancelled', 'Payment was cancelled');
                 } else {
+                    // Something went wrong with the payment
                     console.error('❌ Payment Error:');
                     console.error('   Code:', presentResult.error.code);
                     console.error('   Message:', presentResult.error.message);
                     Alert.alert('Payment Failed', presentResult.error.message);
                 }
             } else {
-                // Success!
+                // Success! Payment went through 🎉
                 console.log('🎉 ========== PAYMENT SUCCESS ==========\n');
 
-                // Step 5: Save payment to Firestore
+                // STEP 5: Save the payment to our database for record keeping
                 try {
                     console.log('💾 Saving payment to history...');
                     await addDoc(collection(db, 'payments'), {
@@ -169,10 +180,11 @@ export default function PaymentScreen() {
                     });
                     console.log('✅ Payment saved to history');
                 } catch (error: any) {
+                    // If saving fails, just log it - payment already succeeded so user is good
                     console.error('⚠️ Could not save payment to history:', error);
-                    // Don't show error to user - payment still succeeded
                 }
 
+                // Show success message with options to view history or go home
                 Alert.alert(
                     'Payment Successful! 🎉',
                     `Booking confirmed!\n\nSkill: ${skillName}\nInstructor: ${instructor}\nAmount: $${totalAmount.toFixed(2)}\n\nPayment ID: ${paymentData.paymentIntentId.substring(0, 20)}...`,
@@ -189,6 +201,7 @@ export default function PaymentScreen() {
                 );
             }
         } catch (error: any) {
+            // Catch any unexpected errors and show to user
             console.error('\n❌ ========== PAYMENT ERROR ==========');
             console.error('Error:', error);
             console.error('Message:', error.message);
@@ -200,6 +213,7 @@ export default function PaymentScreen() {
                 error.response?.data?.message || error.message || 'Payment failed. Please try again.'
             );
         } finally {
+            // Always turn off loading spinner
             setLoading(false);
         }
     };
@@ -207,11 +221,13 @@ export default function PaymentScreen() {
     return (
         <SafeAreaView style={styles.container} edges={['bottom']}>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                {/* Header */}
                 <View style={styles.header}>
                     <Text style={styles.title}>Confirm Booking</Text>
                     <Text style={styles.subtitle}>Review your payment details</Text>
                 </View>
 
+                {/* Booking details card */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Booking Details</Text>
                     <View style={styles.row}>
@@ -232,6 +248,7 @@ export default function PaymentScreen() {
                     </View>
                 </View>
 
+                {/* Payment breakdown card */}
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Payment Summary</Text>
                     <View style={styles.row}>
@@ -242,18 +259,21 @@ export default function PaymentScreen() {
                         <Text style={styles.label}>Service Fee (5%):</Text>
                         <Text style={styles.value}>${serviceFee.toFixed(2)}</Text>
                     </View>
+                    {/* Total amount - most important number */}
                     <View style={[styles.row, styles.totalRow]}>
                         <Text style={styles.totalLabel}>Total:</Text>
                         <Text style={styles.totalValue}>${totalAmount.toFixed(2)}</Text>
                     </View>
                 </View>
 
+                {/* Trust badges */}
                 <View style={styles.infoCard}>
                     <Text style={styles.infoText}>💳 Secure payment via Stripe</Text>
                     <Text style={styles.infoText}>🔒 Encrypted & safe</Text>
                     <Text style={styles.infoText}>✅ Refund within 24 hours</Text>
                 </View>
 
+                {/* Test card info - remove this in production! */}
                 <View style={styles.testCardInfo}>
                     <Text style={styles.testCardTitle}>🧪 Test Card (Development)</Text>
                     <Text style={styles.testCardText}>Card: 4242 4242 4242 4242</Text>
@@ -261,6 +281,7 @@ export default function PaymentScreen() {
                 </View>
             </ScrollView>
 
+            {/* Action buttons at the bottom */}
             <View style={styles.footer}>
                 <TouchableOpacity
                     style={[styles.button, styles.secondaryButton]}
@@ -270,6 +291,7 @@ export default function PaymentScreen() {
                     <Text style={styles.secondaryButtonText}>Cancel</Text>
                 </TouchableOpacity>
 
+                {/* Main payment button - shows spinner when processing */}
                 <TouchableOpacity
                     style={[styles.button, styles.primaryButton, loading && styles.disabledButton]}
                     onPress={handleCreatePayment}
@@ -310,6 +332,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#666',
     },
+    // White cards with subtle shadow
     card: {
         backgroundColor: '#fff',
         borderRadius: 12,
@@ -345,6 +368,7 @@ const styles = StyleSheet.create({
         flex: 1,
         marginLeft: 16,
     },
+    // Separates the total from other rows
     totalRow: {
         borderTopWidth: 1,
         borderTopColor: '#e0e0e0',
@@ -356,6 +380,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#333',
     },
+    // Big blue total - this is what they're paying
     totalValue: {
         fontSize: 20,
         fontWeight: 'bold',
@@ -372,6 +397,7 @@ const styles = StyleSheet.create({
         color: '#1976D2',
         marginBottom: 8,
     },
+    // Orange warning card for test mode
     testCardInfo: {
         backgroundColor: '#FFF3E0',
         borderRadius: 12,

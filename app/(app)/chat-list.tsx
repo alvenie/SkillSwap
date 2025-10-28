@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
+// base conversation structure from firebase
 interface Conversation {
     id: string;
     participants: string[];
@@ -32,31 +33,37 @@ interface Conversation {
     unreadCount: { [userId: string]: number };
 }
 
+// extended version with computed fields for display
 interface ConversationDisplay extends Conversation {
     otherUserName: string;
     otherUserId: string;
     otherUserInitial: string;
 }
 
+// main chat list screen - shows all conversations
 export default function ChatListScreen() {
     const { user } = useAuth();
     const router = useRouter();
+
     const [conversations, setConversations] = useState<ConversationDisplay[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
+    // set up real-time listener for conversations
     useEffect(() => {
         if (!user) return;
 
         console.log('📱 Setting up chat listener for user:', user.uid);
 
         const conversationsRef = collection(db, 'conversations');
+        // get all conversations where current user is a participant, sorted by most recent
         const q = query(
             conversationsRef,
             where('participants', 'array-contains', user.uid),
             orderBy('lastMessageTime', 'desc')
         );
 
+        // real-time listener that updates whenever conversations change
         const unsubscribe = onSnapshot(
             q,
             (snapshot) => {
@@ -65,14 +72,14 @@ export default function ChatListScreen() {
                 snapshot.forEach((docSnap) => {
                     const data = docSnap.data();
 
-                    // Find the other participant
+                    // figure out who the other person in the conversation is
                     const otherUserId = data.participants?.find(
                         (userId: string) => userId !== user.uid
                     ) || '';
 
                     const otherUserName = data.participantNames?.[otherUserId] || 'User';
 
-                    // ✅ Cast the entire object to ConversationDisplay
+                    // add computed display fields
                     chats.push({
                         id: docSnap.id,
                         ...data,
@@ -88,15 +95,17 @@ export default function ChatListScreen() {
                 setRefreshing(false);
             },
             (error) => {
-                console.error('❌ Error loading conversations:', error);
+                // console.error('Error loading conversations:', error);
                 setLoading(false);
                 setRefreshing(false);
             }
         );
 
+        // cleanup listener on unmount
         return () => unsubscribe();
     }, [user]);
 
+    // navigate to individual chat room
     const handleOpenChat = (conversation: ConversationDisplay) => {
         router.push({
             pathname: '/(app)/chat-room',
@@ -108,6 +117,7 @@ export default function ChatListScreen() {
         });
     };
 
+    // format timestamp to relative time (e.g., "5m", "2h", "3d")
     const formatTime = (timestamp: string) => {
         try {
             const date = new Date(timestamp);
@@ -130,8 +140,10 @@ export default function ChatListScreen() {
 
     const onRefresh = () => {
         setRefreshing(true);
+        // the real-time listener will automatically refresh the data
     };
 
+    // render individual conversation card
     const renderConversation = ({ item }: { item: ConversationDisplay }) => {
         const unreadCount = item.unreadCount?.[user?.uid || ''] || 0;
         const isUnread = unreadCount > 0;
@@ -142,11 +154,13 @@ export default function ChatListScreen() {
                 onPress={() => handleOpenChat(item)}
                 activeOpacity={0.7}
             >
+                {/* user avatar with initial */}
                 <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{item.otherUserInitial}</Text>
                 </View>
 
                 <View style={styles.conversationInfo}>
+                    {/* name and time */}
                     <View style={styles.conversationHeader}>
                         <Text style={[styles.userName, isUnread && styles.unreadText]}>
                             {item.otherUserName}
@@ -154,6 +168,7 @@ export default function ChatListScreen() {
                         <Text style={styles.time}>{formatTime(item.lastMessageTime)}</Text>
                     </View>
 
+                    {/* last message preview and unread badge */}
                     <View style={styles.conversationFooter}>
                         <Text
                             style={[styles.lastMessage, isUnread && styles.unreadText]}
@@ -175,6 +190,7 @@ export default function ChatListScreen() {
         );
     };
 
+    // show loading state while fetching conversations
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -191,6 +207,7 @@ export default function ChatListScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom']}>
+            {/* header with title and new chat button */}
             <View style={styles.header}>
                 <Text style={styles.title}>Messages</Text>
                 <TouchableOpacity
@@ -201,6 +218,7 @@ export default function ChatListScreen() {
                 </TouchableOpacity>
             </View>
 
+            {/* show empty state or conversation list */}
             {conversations.length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyIcon}>💬</Text>

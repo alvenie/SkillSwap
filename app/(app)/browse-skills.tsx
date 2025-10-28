@@ -16,6 +16,7 @@ import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 
+// type definition for users with their teaching/learning skills
 interface UserWithSkills {
     id: string;
     uid: string;
@@ -28,26 +29,35 @@ interface UserWithSkills {
     status: 'online' | 'offline' | 'in-call';
 }
 
+// screen for browsing users by their skills and sending friend requests
 export default function BrowseSkillsScreen() {
+    // state for managing users and filtering
     const [users, setUsers] = useState<UserWithSkills[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
-    const [sentRequests, setSentRequests] = useState<string[]>([]);
-    const [existingFriends, setExistingFriends] = useState<string[]>([]);
+
+    // tracking friend requests and connections
+    const [sentRequests, setSentRequests] = useState<string[]>([]); // user IDs we've sent requests to
+    const [existingFriends, setExistingFriends] = useState<string[]>([]); // already connected friends
+
+    // modal state for sending friend requests
     const [selectedUser, setSelectedUser] = useState<UserWithSkills | null>(null);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
+
     const router = useRouter();
     const { user } = useAuth();
 
+    // load all data when component mounts
     useEffect(() => {
         fetchUsersWithSkills();
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
+    // fetch all users from firebase who have skills listed
     const fetchUsersWithSkills = async () => {
         try {
             setLoading(true);
@@ -56,9 +66,10 @@ export default function BrowseSkillsScreen() {
             const usersData: UserWithSkills[] = [];
 
             querySnapshot.forEach((doc) => {
+                // exclude current user from results
                 if (doc.id !== user?.uid) {
                     const data = doc.data();
-                    // Only show users who have skills listed
+                    // only include users who have at least one skill
                     if (
                         (data.skillsTeaching && data.skillsTeaching.length > 0) ||
                         (data.skillsLearning && data.skillsLearning.length > 0)
@@ -88,6 +99,7 @@ export default function BrowseSkillsScreen() {
         }
     };
 
+    // load pending friend requests we've sent
     const loadSentRequests = async () => {
         if (!user) return;
 
@@ -110,6 +122,7 @@ export default function BrowseSkillsScreen() {
         }
     };
 
+    // load list of existing friends
     const loadExistingFriends = async () => {
         if (!user) return;
 
@@ -130,6 +143,7 @@ export default function BrowseSkillsScreen() {
         }
     };
 
+    // filter users based on search text - searches name, email, bio, and skills
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
@@ -151,21 +165,25 @@ export default function BrowseSkillsScreen() {
         }
     };
 
+    // open the modal to send a friend request
     const openRequestModal = (targetUser: UserWithSkills) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
     };
 
+    // send friend request to another user
     const sendFriendRequest = async () => {
         if (!user || !selectedUser) return;
 
         try {
             setSending(true);
 
+            // get current user's info for the request
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
 
+            // create friend request document
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: user.uid,
                 fromUserName: currentUserData?.displayName || user.email || 'User',
@@ -194,18 +212,19 @@ export default function BrowseSkillsScreen() {
         }
     };
 
+    // navigate to payment screen to book a skill session
     const handleBookSkill = (targetUser: UserWithSkills, skill: string) => {
         if (!user) {
             Alert.alert('Error', 'Please login first');
             return;
         }
 
-        // Navigate to payment with skill info
+        // pass skill and instructor details to payment screen
         router.push({
             pathname: '/(app)/payment',
             params: {
                 skillName: skill,
-                skillPrice: '50',
+                skillPrice: '50', // default price for now
                 skillDuration: '1 hour',
                 instructor: targetUser.displayName,
                 instructorEmail: targetUser.email,
@@ -213,6 +232,7 @@ export default function BrowseSkillsScreen() {
         });
     };
 
+    // render individual user card with skills and connection status
     const renderUserCard = (targetUser: UserWithSkills) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
@@ -220,6 +240,7 @@ export default function BrowseSkillsScreen() {
 
         return (
             <View style={styles.card}>
+                {/* user header with avatar and basic info */}
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
@@ -227,6 +248,7 @@ export default function BrowseSkillsScreen() {
                                 {targetUser.displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
+                        {/* online status indicator */}
                         <View
                             style={[
                                 styles.statusBadge,
@@ -247,7 +269,7 @@ export default function BrowseSkillsScreen() {
                     </View>
                 </View>
 
-                {/* Skills Teaching */}
+                {/* skills they can teach - clickable to book */}
                 {targetUser.skillsTeaching.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>🎓 Can teach:</Text>
@@ -270,7 +292,7 @@ export default function BrowseSkillsScreen() {
                     </View>
                 )}
 
-                {/* Skills Learning */}
+                {/* skills they want to learn - not clickable */}
                 {targetUser.skillsLearning.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>📚 Wants to learn:</Text>
@@ -292,7 +314,7 @@ export default function BrowseSkillsScreen() {
                     </View>
                 )}
 
-                {/* Action Buttons */}
+                {/* connection button - shows different states */}
                 <View style={styles.actionContainer}>
                     {isFriend ? (
                         <View style={styles.friendBadge}>
@@ -315,6 +337,7 @@ export default function BrowseSkillsScreen() {
         );
     };
 
+    // show loading spinner while fetching data
     if (loading) {
         return (
             <View style={styles.container}>
@@ -325,6 +348,7 @@ export default function BrowseSkillsScreen() {
 
     return (
         <View style={styles.container}>
+            {/* header with title and search */}
             <View style={styles.header}>
                 <Text style={styles.title}>Browse Skills</Text>
                 <TextInput
@@ -336,6 +360,7 @@ export default function BrowseSkillsScreen() {
                 />
             </View>
 
+            {/* show empty state or user list */}
             {filteredUsers.length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyText}>
@@ -351,7 +376,7 @@ export default function BrowseSkillsScreen() {
                 />
             )}
 
-            {/* Friend Request Modal */}
+            {/* modal for sending friend request with optional message */}
             <Modal visible={showRequestModal} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -364,6 +389,7 @@ export default function BrowseSkillsScreen() {
 
                         {selectedUser && (
                             <ScrollView style={styles.modalBody}>
+                                {/* selected user info */}
                                 <View style={styles.modalUserInfo}>
                                     <View style={styles.modalAvatar}>
                                         <Text style={styles.modalAvatarText}>
@@ -380,6 +406,7 @@ export default function BrowseSkillsScreen() {
                                     </View>
                                 </View>
 
+                                {/* optional introduction message */}
                                 <View style={styles.messageSection}>
                                     <Text style={styles.messageLabel}>
                                         Introduce yourself (optional)
@@ -395,6 +422,7 @@ export default function BrowseSkillsScreen() {
                                     />
                                 </View>
 
+                                {/* modal action buttons */}
                                 <View style={styles.modalButtons}>
                                     <TouchableOpacity
                                         style={[styles.modalButton, styles.cancelButton]}

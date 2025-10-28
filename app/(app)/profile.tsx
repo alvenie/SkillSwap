@@ -17,6 +17,7 @@ import { doc, getDoc, collection, query, where, getDocs, updateDoc, addDoc, incr
 import { useRouter } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
 
+// TypeScript interfaces to define the shape of our data
 interface UserProfile {
     uid: string;
     email: string;
@@ -44,6 +45,8 @@ interface FriendRequest {
 export default function ProfileScreen() {
     const { user } = useAuth();
     const router = useRouter();
+
+    // State management for all the data we need
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -51,12 +54,14 @@ export default function ProfileScreen() {
     const [friends, setFriends] = useState<any[]>([]);
     const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
+    // Load everything when the screen first mounts
     useEffect(() => {
         loadProfile();
         loadFriendRequests();
         loadFriends();
     }, []);
 
+    // Fetch user profile from Firestore
     const loadProfile = async () => {
         if (!user) return;
 
@@ -64,6 +69,7 @@ export default function ProfileScreen() {
             const userDoc = await getDoc(doc(db, 'users', user.uid));
 
             if (userDoc.exists()) {
+                // User profile exists in database
                 const data = userDoc.data();
                 setProfile({
                     uid: user.uid,
@@ -78,6 +84,7 @@ export default function ProfileScreen() {
                     friendCount: data.friendCount || 0,
                 });
             } else {
+                // No profile yet, create a default one
                 const defaultProfile: UserProfile = {
                     uid: user.uid,
                     email: user.email || '',
@@ -99,6 +106,7 @@ export default function ProfileScreen() {
         }
     };
 
+    // Get all pending friend requests for this user
     const loadFriendRequests = async () => {
         if (!user) return;
 
@@ -125,6 +133,7 @@ export default function ProfileScreen() {
         }
     };
 
+    // Load the user's current friends list
     const loadFriends = async () => {
         if (!user) return;
 
@@ -147,6 +156,8 @@ export default function ProfileScreen() {
         }
     };
 
+    // This is the big one - handles accepting a friend request
+    // Creates bidirectional friendship and updates counts
     const handleAcceptRequest = async (requestId: string, fromUserId: string, fromUserName: string, fromUserEmail: string) => {
         if (!user) return;
 
@@ -155,7 +166,7 @@ export default function ProfileScreen() {
         try {
             console.log('🎉 Accepting friend request...');
 
-            // Step 1: Update friend request status
+            // STEP 1: Mark the friend request as accepted
             console.log('📝 Step 1: Updating friend request status...');
             await updateDoc(doc(db, 'friendRequests', requestId), {
                 status: 'accepted',
@@ -163,7 +174,7 @@ export default function ProfileScreen() {
             });
             console.log('✅ Friend request status updated');
 
-            // Step 2: Check if friendship already exists (prevent duplicates)
+            // STEP 2: Check if they're already friends (prevent duplicates)
             console.log('🔍 Step 2: Checking for existing friendship...');
             const existingFriendQuery = query(
                 collection(db, 'friends'),
@@ -173,7 +184,7 @@ export default function ProfileScreen() {
             const existingFriendSnapshot = await getDocs(existingFriendQuery);
 
             if (existingFriendSnapshot.empty) {
-                // Step 3: Create friendship for current user
+                // STEP 3: Create friendship record for current user
                 console.log('👥 Step 3: Creating friendship for current user...');
                 await addDoc(collection(db, 'friends'), {
                     userId: user.uid,
@@ -186,7 +197,7 @@ export default function ProfileScreen() {
                 });
                 console.log('✅ Friendship created for current user');
 
-                // Step 4: Create friendship for the other user (bidirectional)
+                // STEP 4: Create friendship record for the other user (makes it bidirectional)
                 console.log('👥 Step 4: Creating friendship for other user...');
                 await addDoc(collection(db, 'friends'), {
                     userId: fromUserId,
@@ -199,10 +210,10 @@ export default function ProfileScreen() {
                 });
                 console.log('✅ Friendship created for other user');
 
-                // Step 5: Update friend counts for both users (with error handling)
+                // STEP 5: Update friend counts for both users
                 console.log('🔢 Step 5: Updating friend counts...');
                 try {
-                    // Get current user doc to check if friendCount exists
+                    // Get current user's friend count and increment it
                     const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                     const currentUserData = currentUserDoc.data();
                     const currentFriendCount = currentUserData?.friendCount || 0;
@@ -211,7 +222,7 @@ export default function ProfileScreen() {
                         friendCount: currentFriendCount + 1,
                     });
 
-                    // Update other user's friend count
+                    // Same for the other user
                     const otherUserDoc = await getDoc(doc(db, 'users', fromUserId));
                     const otherUserData = otherUserDoc.data();
                     const otherFriendCount = otherUserData?.friendCount || 0;
@@ -221,8 +232,8 @@ export default function ProfileScreen() {
                     });
                     console.log('✅ Friend counts updated');
                 } catch (countError) {
+                    // If count update fails, that's okay - friendship still created
                     console.error('⚠️ Error updating friend counts:', countError);
-                    // Don't fail the whole operation if count update fails
                 }
             } else {
                 console.log('⚠️ Friendship already exists, skipping creation');
@@ -230,10 +241,10 @@ export default function ProfileScreen() {
 
             console.log('🎉 Friend request accepted successfully!');
 
-            // Wait a bit for Firestore to propagate changes
+            // Give Firestore a moment to sync everything
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Reload data in parallel
+            // Refresh all the data to show the new friend
             await Promise.all([
                 loadFriendRequests(),
                 loadFriends(),
@@ -254,6 +265,7 @@ export default function ProfileScreen() {
         }
     };
 
+    // Reject a friend request - much simpler than accepting
     const handleRejectRequest = async (requestId: string) => {
         try {
             await updateDoc(doc(db, 'friendRequests', requestId), {
@@ -269,10 +281,11 @@ export default function ProfileScreen() {
         }
     };
 
-    // ✅ FIXED: Added function to handle opening chat
+    // Open a chat with a friend
     const handleOpenChat = (friendId: string, friendName: string) => {
         if (!user) return;
 
+        // Generate a unique conversation ID for this pair of users
         const conversationId = generateConversationId(user.uid, friendId);
 
         console.log('💬 Opening chat with:', friendName);
@@ -288,6 +301,7 @@ export default function ProfileScreen() {
         });
     };
 
+    // Pull-to-refresh handler
     const onRefresh = () => {
         setRefreshing(true);
         loadProfile();
@@ -295,6 +309,7 @@ export default function ProfileScreen() {
         loadFriends();
     };
 
+    // Show loading spinner while fetching data
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -306,6 +321,7 @@ export default function ProfileScreen() {
         );
     }
 
+    // Show error if profile couldn't be loaded
     if (!profile) {
         return (
             <SafeAreaView style={styles.container}>
@@ -325,7 +341,7 @@ export default function ProfileScreen() {
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
                 }
             >
-                {/* Header */}
+                {/* Header with edit button */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>My Profile</Text>
                     <TouchableOpacity
@@ -336,14 +352,16 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Profile Card */}
+                {/* Main profile card with avatar, name, and stats */}
                 <View style={styles.profileCard}>
                     <View style={styles.avatarContainer}>
+                        {/* Avatar shows first letter of name */}
                         <View style={styles.avatar}>
                             <Text style={styles.avatarText}>
                                 {profile.displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
+                        {/* Online status indicator */}
                         <View
                             style={[
                                 styles.statusBadge,
@@ -358,7 +376,7 @@ export default function ProfileScreen() {
                     )}
                     {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
 
-                    {/* Stats */}
+                    {/* Stats row - friends, teaching, learning counts */}
                     <View style={styles.statsContainer}>
                         <View style={styles.statItem}>
                             <Text style={styles.statValue}>{friends.length}</Text>
@@ -377,7 +395,7 @@ export default function ProfileScreen() {
                     </View>
                 </View>
 
-                {/* Friend Requests */}
+                {/* Friend requests section - only shows if there are pending requests */}
                 {friendRequests.length > 0 && (
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>
@@ -392,6 +410,7 @@ export default function ProfileScreen() {
                                         <Text style={styles.requestMessage}>"{request.message}"</Text>
                                     )}
                                 </View>
+                                {/* Accept/Reject buttons */}
                                 <View style={styles.requestActions}>
                                     <TouchableOpacity
                                         style={[
@@ -428,7 +447,7 @@ export default function ProfileScreen() {
                     </View>
                 )}
 
-                {/* Skills Teaching */}
+                {/* Skills they can teach */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>🎓 Skills I Can Teach</Text>
@@ -453,7 +472,7 @@ export default function ProfileScreen() {
                     )}
                 </View>
 
-                {/* Skills Learning */}
+                {/* Skills they want to learn */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>📚 Skills I Want to Learn</Text>
@@ -478,7 +497,7 @@ export default function ProfileScreen() {
                     )}
                 </View>
 
-                {/* Friends List */}
+                {/* Friends list with message buttons */}
                 <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>👥 My Friends ({friends.length})</Text>
@@ -498,7 +517,7 @@ export default function ProfileScreen() {
                                     <Text style={styles.friendName}>{friend.friendName}</Text>
                                     <Text style={styles.friendEmail}>{friend.friendEmail}</Text>
                                 </View>
-                                {/* ✅ FIXED: Now opens chat instead of showing "Coming Soon" */}
+                                {/* Message button opens chat with this friend */}
                                 <TouchableOpacity
                                     style={styles.messageButton}
                                     onPress={() => handleOpenChat(friend.friendId, friend.friendName)}
@@ -566,6 +585,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 14,
     },
+    // Main profile card styling
     profileCard: {
         backgroundColor: '#fff',
         padding: 24,
@@ -590,6 +610,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#fff',
     },
+    // Little green/gray dot showing online status
     statusBadge: {
         position: 'absolute',
         bottom: 5,
@@ -624,6 +645,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         lineHeight: 20,
     },
+    // Stats section with dividers
     statsContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -676,6 +698,7 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         gap: 8,
     },
+    // Skill chips with different colors for teaching vs learning
     skillChip: {
         paddingHorizontal: 12,
         paddingVertical: 8,
@@ -705,6 +728,7 @@ const styles = StyleSheet.create({
         color: '#999',
         textAlign: 'center',
     },
+    // Friend request cards with blue border
     requestCard: {
         backgroundColor: '#fff',
         borderRadius: 12,
@@ -761,6 +785,7 @@ const styles = StyleSheet.create({
     disabledButton: {
         opacity: 0.6,
     },
+    // Friend list item styling
     friendCard: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -796,6 +821,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#666',
     },
+    // Message button on friend cards
     messageButton: {
         width: 40,
         height: 40,

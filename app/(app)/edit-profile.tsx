@@ -16,6 +16,7 @@ import { db } from '../../firebaseConfig';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
+// predefined list of popular skills users can choose from
 const COMMON_SKILLS = [
     'Cooking',
     'Guitar',
@@ -42,26 +43,31 @@ const COMMON_SKILLS = [
     'Chess',
 ];
 
+// screen for editing user profile information and skills
 export default function EditProfileScreen() {
     const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
+    // profile form fields
     const [displayName, setDisplayName] = useState('');
     const [bio, setBio] = useState('');
     const [location, setLocation] = useState('');
     const [skillsTeaching, setSkillsTeaching] = useState<string[]>([]);
     const [skillsLearning, setSkillsLearning] = useState<string[]>([]);
 
+    // modal state for adding skills
     const [showSkillModal, setShowSkillModal] = useState(false);
     const [skillModalType, setSkillModalType] = useState<'teaching' | 'learning'>('teaching');
     const [customSkill, setCustomSkill] = useState('');
 
+    // load user profile on mount
     useEffect(() => {
         loadProfile();
     }, []);
 
+    // fetch user data from firestore
     const loadProfile = async () => {
         if (!user) return;
 
@@ -76,6 +82,7 @@ export default function EditProfileScreen() {
                 setSkillsTeaching(data.skillsTeaching || []);
                 setSkillsLearning(data.skillsLearning || []);
             } else {
+                // fallback for new users
                 setDisplayName(user.email || 'User');
             }
         } catch (error: any) {
@@ -86,6 +93,7 @@ export default function EditProfileScreen() {
         }
     };
 
+    // save profile changes to firestore
     const handleSaveProfile = async () => {
         if (!user) return;
 
@@ -97,6 +105,7 @@ export default function EditProfileScreen() {
         try {
             setSaving(true);
 
+            // merge with existing data to avoid overwriting other fields
             await setDoc(
                 doc(db, 'users', user.uid),
                 {
@@ -126,17 +135,20 @@ export default function EditProfileScreen() {
         }
     };
 
+    // open modal to add a skill (teaching or learning)
     const openSkillModal = (type: 'teaching' | 'learning') => {
         setSkillModalType(type);
         setCustomSkill('');
         setShowSkillModal(true);
     };
 
+    // add a skill to the appropriate list
     const addSkill = (skill: string) => {
         const trimmedSkill = skill.trim();
         if (!trimmedSkill) return;
 
         if (skillModalType === 'teaching') {
+            // avoid duplicates
             if (!skillsTeaching.includes(trimmedSkill)) {
                 setSkillsTeaching([...skillsTeaching, trimmedSkill]);
             }
@@ -150,6 +162,7 @@ export default function EditProfileScreen() {
         setCustomSkill('');
     };
 
+    // remove a skill from the list
     const removeSkill = (skill: string, type: 'teaching' | 'learning') => {
         if (type === 'teaching') {
             setSkillsTeaching(skillsTeaching.filter((s) => s !== skill));
@@ -158,6 +171,7 @@ export default function EditProfileScreen() {
         }
     };
 
+    // show loading spinner while fetching profile
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -171,6 +185,7 @@ export default function EditProfileScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                {/* header with back button */}
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                         <Text style={styles.backButtonText}>✕</Text>
@@ -180,7 +195,7 @@ export default function EditProfileScreen() {
                 </View>
 
                 <View style={styles.form}>
-                    {/* Display Name */}
+                    {/* display name field - required */}
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Display Name *</Text>
                         <TextInput
@@ -192,7 +207,7 @@ export default function EditProfileScreen() {
                         />
                     </View>
 
-                    {/* Bio */}
+                    {/* bio field with character counter */}
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Bio</Text>
                         <TextInput
@@ -209,7 +224,7 @@ export default function EditProfileScreen() {
                         </Text>
                     </View>
 
-                    {/* Location */}
+                    {/* location field */}
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Location</Text>
                         <TextInput
@@ -221,7 +236,7 @@ export default function EditProfileScreen() {
                         />
                     </View>
 
-                    {/* Skills Teaching */}
+                    {/* skills user can teach */}
                     <View style={styles.formGroup}>
                         <View style={styles.skillsHeader}>
                             <Text style={styles.label}>Skills I Can Teach</Text>
@@ -247,7 +262,7 @@ export default function EditProfileScreen() {
                         </View>
                     </View>
 
-                    {/* Skills Learning */}
+                    {/* skills user wants to learn */}
                     <View style={styles.formGroup}>
                         <View style={styles.skillsHeader}>
                             <Text style={styles.label}>Skills I Want to Learn</Text>
@@ -273,7 +288,7 @@ export default function EditProfileScreen() {
                         </View>
                     </View>
 
-                    {/* Save Button */}
+                    {/* save button */}
                     <TouchableOpacity
                         style={[styles.saveButton, saving && styles.disabledButton]}
                         onPress={handleSaveProfile}
@@ -290,7 +305,7 @@ export default function EditProfileScreen() {
                 <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Skill Selection Modal */}
+            {/* modal for adding skills - shows common skills and custom input */}
             <Modal visible={showSkillModal} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -306,6 +321,7 @@ export default function EditProfileScreen() {
                         </View>
 
                         <ScrollView style={styles.modalScroll}>
+                            {/* custom skill input */}
                             <View style={styles.customSkillSection}>
                                 <Text style={styles.modalSectionTitle}>Custom Skill</Text>
                                 <View style={styles.customSkillInput}>
@@ -326,6 +342,7 @@ export default function EditProfileScreen() {
                                 </View>
                             </View>
 
+                            {/* predefined common skills grid */}
                             <Text style={styles.modalSectionTitle}>Common Skills</Text>
                             <View style={styles.commonSkillsGrid}>
                                 {COMMON_SKILLS.map((skill, index) => (

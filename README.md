@@ -1,50 +1,206 @@
-# Welcome to your Expo app 👋
+# SkillSwap Mobile App - Setup Guide
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## Quick Start Instructions
 
-## Get started
+Follow these steps in order to get the app running:
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Step 1: Start the Backend Server First ⚠️
 
-2. Start the app
+**IMPORTANT:** The backend server must be running before starting the mobile app.
 
+1. Navigate to your backend project folder
+2. Start the backend server (usually with `dotnet run` or similar)
+3. Note the server's IP address and port (e.g., `http://192.168.4.60:5205`)
+4. Keep the backend server running
+
+---
+
+## Step 2: Update API Configuration
+
+Open the API service file and update the backend URL:
+
+**File:** `services/apiService.ts`
+
+```typescript
+// Change this line to match your backend server
+const API_BASE_URL = 'http://YOUR_IP_ADDRESS:YOUR_PORT/api';
+
+// Example:
+const API_BASE_URL = 'http://192.168.4.60:5205/api';
+```
+
+**Finding Your IP Address:**
+- **Windows:** Open Command Prompt → Type `ipconfig` → Look for "IPv4 Address"
+- **Mac:** System Settings → Network → Your connection → Look for IP address
+- **Linux:** Terminal → Type `ifconfig` or `ip addr`
+
+---
+
+## Step 3: Install Dependencies
+
+Install all required npm packages:
+
+```bash
+npm install
+```
+
+### Required Dependencies
+
+The app uses these main dependencies:
+
+**Core:**
+- `expo` - Expo framework
+- `expo-router` - Navigation
+- `react-native` - Mobile framework
+- `typescript` - Type safety
+
+**Firebase:**
+- `firebase` - Firebase SDK
+- Authentication and Firestore database
+
+**Payment:**
+- `@stripe/stripe-react-native` - Stripe payment processing
+- `axios` - HTTP client for API calls
+
+**UI Components:**
+- `react-native-safe-area-context` - Safe area handling
+- `expo-status-bar` - Status bar management
+
+**Video (if applicable):**
+- `react-native-agora` - Video calling (if used)
+
+All dependencies are listed in `package.json` and will be installed with `npm install`.
+
+---
+
+## Step 4: Start Expo Go
+
+### Option A: Using Expo Go App (Recommended for Development)
+
+1. **Install Expo Go on your phone:**
+    - iOS: Download from App Store
+    - Android: Download from Google Play Store
+
+2. **Start the development server:**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+3. **Connect your phone:**
+    - **iPhone:** Open Camera app → Scan the QR code
+    - **Android:** Open Expo Go app → Scan the QR code
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+4. **Make sure your phone and computer are on the same WiFi network!**
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Option B: Using Emulator/Simulator
 
-## Get a fresh project
-
-When you're ready, run:
-
+**For Android Emulator:**
 ```bash
-npm run reset-project
+npx expo start --android
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**For iOS Simulator (Mac only):**
+```bash
+npx expo start --ios
+```
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## Troubleshooting
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### "Network request failed" or "Cannot connect to backend"
 
-## Join the community
+✅ **Solutions:**
+1. Make sure backend server is running (Step 1)
+2. Check API_BASE_URL is correct (Step 2)
+3. Ensure phone and computer are on same WiFi network
+4. Try using your computer's IP address instead of `localhost`
+5. Check if firewall is blocking the connection
 
-Join our community of developers creating universal apps.
+### "Module not found" errors
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+✅ **Solution:**
+```bash
+# Clear cache and reinstall
+rm -rf node_modules
+npm install
+npx expo start --clear
+```
+
+### App crashes or won't load
+
+✅ **Solution:**
+```bash
+# Reset Expo cache
+npx expo start --clear
+```
+
+### Stripe payment errors
+
+✅ **Solutions:**
+1. Verify Stripe publishable key in `app/_layout.tsx`
+2. Check backend has correct Stripe secret key
+3. Ensure payment API endpoints are working
+
+---
+
+## Environment Requirements
+
+- **Node.js:** 16.x or higher
+- **npm:** 8.x or higher
+- **Expo CLI:** Installed globally or via npx
+- **Mobile Device:** iPhone or Android with Expo Go installed
+    - OR Android Emulator / iOS Simulator
+
+---
+
+---
+
+## Firebase Setup (If Not Already Configured)
+
+If Firebase is not set up:
+
+1. Create a Firebase project at https://console.firebase.google.com
+2. Enable Authentication and Firestore
+3. Get your Firebase config
+4. Update `firebaseConfig.ts` with your credentials
+
+---
+
+## Support
+
+If you encounter issues:
+
+1. Check that backend is running (Step 1)
+2. Verify API URL configuration (Step 2)
+3. Ensure all dependencies are installed (Step 3)
+4. Make sure devices are on same network
+5. Check console logs for specific error messages
+
+---
+
+## Quick Command Reference
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npx expo start
+
+# Start with specific platform
+npx expo start --android
+npx expo start --ios
+
+# Clear cache
+npx expo start --clear
+
+# Check for issues
+npx expo doctor
+```
+
+---
+
+**Ready to go!** 🚀

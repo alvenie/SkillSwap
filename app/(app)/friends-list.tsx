@@ -16,6 +16,7 @@ import { db } from '../../firebaseConfig';
 import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
+// friend data structure with profile details
 interface Friend {
     id: string;
     userId: string;
@@ -29,19 +30,23 @@ interface Friend {
     location?: string;
 }
 
+// screen showing user's friends list with search and actions
 export default function FriendsListScreen() {
     const { user } = useAuth();
     const router = useRouter();
+
     const [friends, setFriends] = useState<Friend[]>([]);
     const [filteredFriends, setFilteredFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
 
+    // load friends on mount
     useEffect(() => {
         loadFriends();
     }, []);
 
+    // fetch friends list with full profile details
     const loadFriends = async () => {
         if (!user) return;
 
@@ -53,11 +58,11 @@ export default function FriendsListScreen() {
 
             const friendsList: Friend[] = [];
 
-            // Load each friend's details
+            // load each friend's profile for additional details
             for (const docSnap of querySnapshot.docs) {
                 const friendData = docSnap.data();
 
-                // Get friend's user profile for additional info
+                // fetch friend's user profile for status, skills, etc
                 try {
                     const friendProfileDoc = await getDoc(doc(db, 'users', friendData.friendId));
                     if (friendProfileDoc.exists()) {
@@ -75,7 +80,7 @@ export default function FriendsListScreen() {
                             location: profileData.location || '',
                         });
                     } else {
-                        // If profile not found, use basic info
+                        // fallback if profile doesn't exist
                         friendsList.push({
                             id: docSnap.id,
                             userId: friendData.userId,
@@ -87,7 +92,7 @@ export default function FriendsListScreen() {
                     }
                 } catch (error) {
                     console.error('Error loading friend profile:', error);
-                    // Add friend with basic info on error
+                    // add friend with basic info on error
                     friendsList.push({
                         id: docSnap.id,
                         userId: friendData.userId,
@@ -99,7 +104,7 @@ export default function FriendsListScreen() {
                 }
             }
 
-            // Sort by most recent
+            // sort by most recently added
             friendsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
             setFriends(friendsList);
@@ -113,6 +118,7 @@ export default function FriendsListScreen() {
         }
     };
 
+    // filter friends by search text
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
@@ -128,6 +134,7 @@ export default function FriendsListScreen() {
         }
     };
 
+    // remove friend with confirmation and cleanup both friendship records
     const handleRemoveFriend = (friendId: string, friendName: string) => {
         Alert.alert(
             'Remove Friend',
@@ -141,10 +148,10 @@ export default function FriendsListScreen() {
                         try {
                             if (!user) return;
 
-                            // Find and delete friendship records for both users
+                            // delete friendship records for both users
                             const friendsRef = collection(db, 'friends');
 
-                            // Delete current user's friendship record
+                            // delete current user's friendship record
                             const q1 = query(
                                 friendsRef,
                                 where('userId', '==', user.uid),
@@ -155,7 +162,7 @@ export default function FriendsListScreen() {
                                 await deleteDoc(doc.ref);
                             }
 
-                            // Delete friend's friendship record
+                            // delete friend's friendship record
                             const q2 = query(
                                 friendsRef,
                                 where('userId', '==', friendId),
@@ -166,7 +173,7 @@ export default function FriendsListScreen() {
                                 await deleteDoc(doc.ref);
                             }
 
-                            // Update friend counts
+                            // update friend counts for both users
                             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                             const friendUserDoc = await getDoc(doc(db, 'users', friendId));
 
@@ -193,6 +200,7 @@ export default function FriendsListScreen() {
         );
     };
 
+    // show friend profile in alert dialog
     const handleViewProfile = (friend: Friend) => {
         Alert.alert(
             friend.friendName,
@@ -208,6 +216,7 @@ export default function FriendsListScreen() {
         loadFriends();
     };
 
+    // render individual friend card with actions
     const renderFriendCard = (friend: Friend) => {
         const isOnline = friend.status === 'online';
 
@@ -219,6 +228,7 @@ export default function FriendsListScreen() {
                 activeOpacity={0.7}
             >
                 <View style={styles.friendContent}>
+                    {/* avatar with online status */}
                     <View style={styles.avatarContainer}>
                         <View style={styles.friendAvatar}>
                             <Text style={styles.friendAvatarText}>
@@ -233,6 +243,7 @@ export default function FriendsListScreen() {
                         />
                     </View>
 
+                    {/* friend info and skills preview */}
                     <View style={styles.friendInfo}>
                         <Text style={styles.friendName}>{friend.friendName}</Text>
                         <Text style={styles.friendEmail}>{friend.friendEmail}</Text>
@@ -240,7 +251,7 @@ export default function FriendsListScreen() {
                             <Text style={styles.location}>📍 {friend.location}</Text>
                         )}
 
-                        {/* Skills Preview */}
+                        {/* preview of skills they can teach */}
                         {friend.skillsTeaching && friend.skillsTeaching.length > 0 && (
                             <View style={styles.skillsPreview}>
                                 <Text style={styles.skillsLabel}>🎓 Teaches: </Text>
@@ -252,12 +263,13 @@ export default function FriendsListScreen() {
                         )}
                     </View>
 
+                    {/* action buttons for message and remove */}
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
                             style={styles.messageButton}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                // Generate proper conversation ID (sorted user IDs)
+                                // generate conversation ID using sorted user IDs
                                 const conversationId = [user?.uid, friend.friendId].sort().join('_');
                                 router.push({
                                     pathname: '/(app)/chat-room',
@@ -286,6 +298,7 @@ export default function FriendsListScreen() {
         );
     };
 
+    // show loading state
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -306,6 +319,7 @@ export default function FriendsListScreen() {
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
                 }
             >
+                {/* header with back and add friend buttons */}
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                         <Text style={styles.backButtonText}>←</Text>
@@ -319,6 +333,7 @@ export default function FriendsListScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* search bar */}
                 <View style={styles.searchContainer}>
                     <TextInput
                         style={styles.searchBox}
@@ -329,10 +344,12 @@ export default function FriendsListScreen() {
                     />
                 </View>
 
+                {/* friend count */}
                 <Text style={styles.resultCount}>
                     {filteredFriends.length} {filteredFriends.length === 1 ? 'friend' : 'friends'}
                 </Text>
 
+                {/* show empty state or friends list */}
                 {filteredFriends.length === 0 ? (
                     <View style={styles.emptyContainer}>
                         <Text style={styles.emptyIcon}>👥</Text>

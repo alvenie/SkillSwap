@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
+// user profile structure for discovery
 interface UserProfile {
     uid: string;
     email: string;
@@ -35,26 +36,35 @@ interface UserProfile {
     status: 'online' | 'offline' | 'in-call';
 }
 
+// screen for discovering and adding new friends
 export default function FindFriendsScreen() {
     const { user } = useAuth();
     const router = useRouter();
+
+    // user list state
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
+
+    // friend request state
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
+
+    // tracking sent requests and existing friends
     const [sentRequests, setSentRequests] = useState<string[]>([]);
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
+    // load all data when component mounts
     useEffect(() => {
         loadUsers();
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
+    // fetch all users except current user
     const loadUsers = async () => {
         try {
             setLoading(true);
@@ -63,6 +73,7 @@ export default function FindFriendsScreen() {
 
             const usersData: UserProfile[] = [];
             querySnapshot.forEach((doc) => {
+                // exclude current user from results
                 if (doc.id !== user?.uid) {
                     const data = doc.data();
                     usersData.push({
@@ -88,6 +99,7 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // load pending friend requests we've sent
     const loadSentRequests = async () => {
         if (!user) return;
 
@@ -110,6 +122,7 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // load existing friends list
     const loadExistingFriends = async () => {
         if (!user) return;
 
@@ -130,6 +143,7 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // filter users based on search text - searches name, email, bio, and skills
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
@@ -151,23 +165,25 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // open modal to send friend request
     const openRequestModal = (targetUser: UserProfile) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
     };
 
+    // send friend request to selected user
     const sendFriendRequest = async () => {
         if (!user || !selectedUser) return;
 
         try {
             setSending(true);
 
-            // Get current user's profile
+            // get current user's profile info
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
 
-            // Create friend request
+            // create friend request document
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: user.uid,
                 fromUserName: currentUserData?.displayName || user.email || 'User',
@@ -196,23 +212,23 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // helper to find skill matches between users - currently not implemented
     const getSkillMatches = (targetUser: UserProfile) => {
         if (!user) return { canTeach: [], wantsToLearn: [] };
 
-        // Load current user's skills from state or fetch
+        // would compare current user's skills with target user's needs
         const canTeach = targetUser.skillsLearning.filter((skill) =>
-            // This would need current user's teaching skills
-            false
+            false // placeholder logic
         );
 
         const wantsToLearn = targetUser.skillsTeaching.filter((skill) =>
-            // This would need current user's learning skills
-            false
+            false // placeholder logic
         );
 
         return { canTeach, wantsToLearn };
     };
 
+    // render individual user card
     const renderUserCard = (targetUser: UserProfile) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
@@ -220,6 +236,7 @@ export default function FindFriendsScreen() {
 
         return (
             <View key={targetUser.uid} style={styles.userCard}>
+                {/* user header with avatar and info */}
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
@@ -227,6 +244,7 @@ export default function FindFriendsScreen() {
                                 {targetUser.displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
+                        {/* online status indicator */}
                         <View
                             style={[
                                 styles.statusBadge,
@@ -247,7 +265,7 @@ export default function FindFriendsScreen() {
                     </View>
                 </View>
 
-                {/* Skills */}
+                {/* skills they can teach */}
                 {targetUser.skillsTeaching.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>🎓 Can teach:</Text>
@@ -266,6 +284,7 @@ export default function FindFriendsScreen() {
                     </View>
                 )}
 
+                {/* skills they want to learn */}
                 {targetUser.skillsLearning.length > 0 && (
                     <View style={styles.skillsSection}>
                         <Text style={styles.skillsLabel}>📚 Wants to learn:</Text>
@@ -284,7 +303,7 @@ export default function FindFriendsScreen() {
                     </View>
                 )}
 
-                {/* Action Button */}
+                {/* action button showing connection status */}
                 <View style={styles.actionContainer}>
                     {isFriend ? (
                         <View style={styles.friendBadge}>
@@ -307,6 +326,7 @@ export default function FindFriendsScreen() {
         );
     };
 
+    // show loading spinner while fetching users
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -320,6 +340,7 @@ export default function FindFriendsScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                {/* header with back button */}
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                         <Text style={styles.backButtonText}>←</Text>
@@ -328,6 +349,7 @@ export default function FindFriendsScreen() {
                     <View style={{ width: 40 }} />
                 </View>
 
+                {/* search bar */}
                 <View style={styles.searchContainer}>
                     <TextInput
                         style={styles.searchBox}
@@ -338,10 +360,12 @@ export default function FindFriendsScreen() {
                     />
                 </View>
 
+                {/* result count */}
                 <Text style={styles.resultCount}>
                     {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'} found
                 </Text>
 
+                {/* user list or empty state */}
                 {filteredUsers.length === 0 ? (
                     <View style={styles.emptyContainer}>
                         <Text style={styles.emptyText}>No users found</Text>
@@ -353,7 +377,7 @@ export default function FindFriendsScreen() {
                 <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Friend Request Modal */}
+            {/* modal for sending friend request with optional message */}
             <Modal visible={showRequestModal} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -366,6 +390,7 @@ export default function FindFriendsScreen() {
 
                         {selectedUser && (
                             <View style={styles.modalBody}>
+                                {/* selected user info */}
                                 <View style={styles.modalUserInfo}>
                                     <View style={styles.modalAvatar}>
                                         <Text style={styles.modalAvatarText}>
@@ -382,6 +407,7 @@ export default function FindFriendsScreen() {
                                     </View>
                                 </View>
 
+                                {/* optional message input */}
                                 <View style={styles.messageSection}>
                                     <Text style={styles.messageLabel}>
                                         Add a message (optional)
@@ -397,6 +423,7 @@ export default function FindFriendsScreen() {
                                     />
                                 </View>
 
+                                {/* modal action buttons */}
                                 <View style={styles.modalButtons}>
                                     <TouchableOpacity
                                         style={[styles.modalButton, styles.cancelButton]}
@@ -459,21 +486,23 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     backButtonText: {
-        fontSize: 24,
+        fontSize: 28,
         color: '#007AFF',
         fontWeight: 'bold',
     },
     title: {
-        fontSize: 20,
+        fontSize: 24,
         fontWeight: 'bold',
         color: '#333',
     },
     searchContainer: {
         padding: 20,
-        paddingBottom: 12,
+        paddingTop: 16,
+        paddingBottom: 8,
+        backgroundColor: '#fff',
     },
     searchBox: {
-        backgroundColor: '#fff',
+        backgroundColor: '#f0f0f0',
         borderRadius: 12,
         padding: 12,
         fontSize: 16,
