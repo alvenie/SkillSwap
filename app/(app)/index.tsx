@@ -18,7 +18,6 @@ export default function HomeScreen() {
                 style: 'destructive',
                 onPress: async () => {
                     try {
-                        // ✅ UPDATE USER STATUS TO OFFLINE
                         if (user) {
                             await updateDoc(doc(db, 'users', user.uid), {
                                 status: 'offline',
@@ -49,10 +48,23 @@ export default function HomeScreen() {
             <ScrollView style={styles.content}>
                 <Text style={styles.title}>Skills Marketplace</Text>
 
-                {/* Messages - NEW */}
+                {/* Skills - Browse & Manage */}
                 <TouchableOpacity
                     style={styles.card}
-                    onPress={() => router.push('./chat-list')}
+                    onPress={() => router.push('/(app)/skills')}
+                >
+                    <Text style={styles.cardIcon}>🎯</Text>
+                    <View style={styles.cardText}>
+                        <Text style={styles.cardTitle}>Skills</Text>
+                        <Text style={styles.cardSubtitle}>Browse & manage skills</Text>
+                    </View>
+                    <Text style={styles.arrow}>→</Text>
+                </TouchableOpacity>
+
+                {/* Messages */}
+                <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => router.push('/(app)/chat-list')}
                 >
                     <Text style={styles.cardIcon}>💬</Text>
                     <View style={styles.cardText}>
@@ -65,7 +77,7 @@ export default function HomeScreen() {
                 {/* Payment History */}
                 <TouchableOpacity
                     style={styles.card}
-                    onPress={() => router.push('./history')}
+                    onPress={() => router.push('/(app)/history')}
                 >
                     <Text style={styles.cardIcon}>💳</Text>
                     <View style={styles.cardText}>
@@ -78,38 +90,12 @@ export default function HomeScreen() {
                 {/* Video Chat */}
                 <TouchableOpacity
                     style={styles.card}
-                    onPress={() => router.push('./video-chat')}
+                    onPress={() => router.push('/(app)/video-chat')}
                 >
                     <Text style={styles.cardIcon}>📹</Text>
                     <View style={styles.cardText}>
                         <Text style={styles.cardTitle}>Video Chat</Text>
                         <Text style={styles.cardSubtitle}>Call other users</Text>
-                    </View>
-                    <Text style={styles.arrow}>→</Text>
-                </TouchableOpacity>
-
-                {/* My Skills */}
-                <TouchableOpacity
-                    style={styles.card}
-                    onPress={() => router.push('./manage-skills')}
-                >
-                    <Text style={styles.cardIcon}>📚</Text>
-                    <View style={styles.cardText}>
-                        <Text style={styles.cardTitle}>My Skills</Text>
-                        <Text style={styles.cardSubtitle}>Add & manage</Text>
-                    </View>
-                    <Text style={styles.arrow}>→</Text>
-                </TouchableOpacity>
-
-                {/* Browse Skills */}
-                <TouchableOpacity
-                    style={styles.card}
-                    onPress={() => router.push('./browse-skills')}
-                >
-                    <Text style={styles.cardIcon}>🎯</Text>
-                    <View style={styles.cardText}>
-                        <Text style={styles.cardTitle}>Browse Skills</Text>
-                        <Text style={styles.cardSubtitle}>Book lessons</Text>
                     </View>
                     <Text style={styles.arrow}>→</Text>
                 </TouchableOpacity>

@@ -17,10 +17,10 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="browse-skills"
+                name="skills"
                 options={{
-                    title: 'Browse',
-                    tabBarLabel: 'Browse',
+                    title: 'Skills',
+                    tabBarLabel: 'Skills',
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
                 }}
             />
@@ -30,14 +30,6 @@ export default function TabLayout() {
                     title: 'Messages',
                     tabBarLabel: 'Messages',
                     tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>💬</Text>,
-                }}
-            />
-            <Tabs.Screen
-                name="manage-skills"
-                options={{
-                    title: 'My Skills',
-                    tabBarLabel: 'My Skills',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📚</Text>,
                 }}
             />
             <Tabs.Screen
@@ -57,6 +49,8 @@ export default function TabLayout() {
             <Tabs.Screen name="friends-list" options={{ href: null }} />
             <Tabs.Screen name="explore" options={{ href: null }} />
             <Tabs.Screen name="chat-room" options={{ href: null }} />
+            <Tabs.Screen name="browse-skills" options={{ href: null }} />
+            <Tabs.Screen name="manage-skills" options={{ href: null }} />
         </Tabs>
     );
 }

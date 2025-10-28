@@ -25,8 +25,6 @@ import {
     setDoc,
     updateDoc,
     Timestamp,
-    where,
-    getDocs,
 } from 'firebase/firestore';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
@@ -57,6 +55,11 @@ export default function ChatRoomScreen() {
     const [conversationReady, setConversationReady] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
+    // ✅ FIX: Add refs to prevent multiple alerts
+    const hasShownAuthError = useRef(false);
+    const hasShownParamsError = useRef(false);
+    const isInitializing = useRef(false);
+
     // Set up conversationId when user is available
     useEffect(() => {
         if (authLoading || !user) return;
@@ -75,33 +78,45 @@ export default function ChatRoomScreen() {
             return;
         }
 
-        // Check if user is authenticated
+        // Check if user is authenticated - only show error once
         if (!user) {
-            console.error('❌ User not authenticated');
-            Alert.alert('Error', 'Please login to access messages', [
-                { text: 'OK', onPress: () => router.replace('/(public)/login') }
-            ]);
+            if (!hasShownAuthError.current) {
+                hasShownAuthError.current = true;
+                console.error('❌ User not authenticated');
+                Alert.alert('Error', 'Please login to access messages', [
+                    { text: 'OK', onPress: () => router.replace('/(public)/login') }
+                ]);
+            }
             return;
         }
 
-        // Validate required params
+        // Validate required params - only show error once
         if (!otherUserId) {
-            console.error('❌ Missing otherUserId');
-            Alert.alert('Error', 'Invalid conversation', [
-                { text: 'OK', onPress: () => {
-                        if (router.canGoBack()) {
-                            router.back();
-                        } else {
-                            router.replace('/(app)');
-                        }
-                    }}
-            ]);
+            if (!hasShownParamsError.current) {
+                hasShownParamsError.current = true;
+                console.error('❌ Missing otherUserId');
+                Alert.alert('Error', 'Invalid conversation', [
+                    { text: 'OK', onPress: () => {
+                            if (router.canGoBack()) {
+                                router.back();
+                            } else {
+                                router.replace('/(app)');
+                            }
+                        }}
+                ]);
+            }
             return;
         }
 
         // Wait for conversationId to be set
         if (!conversationId) {
             console.log('⏳ Waiting for conversation ID...');
+            return;
+        }
+
+        // ✅ FIX: Prevent multiple initializations
+        if (isInitializing.current) {
+            console.log('⏳ Already initializing...');
             return;
         }
 
@@ -150,7 +165,7 @@ export default function ChatRoomScreen() {
             (error) => {
                 console.error('❌ Error loading messages:', error);
                 setLoading(false);
-                Alert.alert('Error', 'Failed to load messages');
+                Alert.alert('Error', 'Failed to load messages. Please check your permissions.');
             }
         );
 
@@ -158,7 +173,10 @@ export default function ChatRoomScreen() {
     }, [conversationReady, conversationId, user]);
 
     const initializeChat = async () => {
-        if (!user || !conversationId || !otherUserId) return;
+        if (!user || !conversationId || !otherUserId || isInitializing.current) return;
+
+        // ✅ FIX: Mark as initializing
+        isInitializing.current = true;
 
         try {
             console.log('🔍 Verifying/Creating conversation...');
@@ -236,8 +254,11 @@ export default function ChatRoomScreen() {
             setConversationReady(true);
         } catch (error) {
             console.error('❌ Error initializing conversation:', error);
-            Alert.alert('Error', 'Failed to initialize conversation');
+            Alert.alert('Error', 'Failed to initialize conversation. Please check Firestore permissions.');
             setLoading(false);
+        } finally {
+            // ✅ FIX: Reset initializing flag
+            isInitializing.current = false;
         }
     };
 
@@ -314,7 +335,7 @@ export default function ChatRoomScreen() {
             console.log('✅ Message sent successfully');
         } catch (error) {
             console.error('❌ Error sending message:', error);
-            Alert.alert('Error', 'Failed to send message');
+            Alert.alert('Error', 'Failed to send message. Please check your permissions.');
             setMessageText(text); // Restore message
         } finally {
             setSending(false);
