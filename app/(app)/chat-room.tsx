@@ -10,6 +10,7 @@ import {
     Platform,
     ActivityIndicator,
     Alert,
+    Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -28,28 +29,43 @@ import {
 } from 'firebase/firestore';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
+import { useStripe } from '@stripe/stripe-react-native';
+import { paymentService } from '../../services/apiService';
 
-// message structure for chat
-interface Message {
+// Message types
+interface BaseMessage {
     id: string;
     senderId: string;
     senderName: string;
-    text: string;
     timestamp: any;
     read: boolean;
 }
 
-// individual chat room screen for one-on-one conversations
+interface TextMessage extends BaseMessage {
+    type: 'text';
+    text: string;
+}
+
+interface PaymentRequestMessage extends BaseMessage {
+    type: 'payment_request';
+    amount: number;
+    description: string;
+    status: 'pending' | 'paid' | 'declined' | 'cancelled';
+    paymentIntentId?: string;
+}
+
+type Message = TextMessage | PaymentRequestMessage;
+
 export default function ChatRoomScreen() {
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const params = useLocalSearchParams();
+    const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
-    // get other user info from route params
     const otherUserId = params.otherUserId as string;
     const otherUserName = params.otherUserName as string;
 
-    // chat state
+    // Chat state
     const [conversationId, setConversationId] = useState<string>('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [messageText, setMessageText] = useState('');
@@ -58,35 +74,34 @@ export default function ChatRoomScreen() {
     const [conversationReady, setConversationReady] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    // refs to prevent duplicate error alerts
+    // Payment request modal state
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [paymentDescription, setPaymentDescription] = useState('');
+    const [sendingPaymentRequest, setSendingPaymentRequest] = useState(false);
+
+    // Processing payment
+    const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+
     const hasShownAuthError = useRef(false);
     const hasShownParamsError = useRef(false);
     const isInitializing = useRef(false);
 
-    // generate or use existing conversation ID
+    // Generate conversation ID
     useEffect(() => {
         if (authLoading || !user) return;
-
         const paramConversationId = params.conversationId as string;
         const finalConversationId = paramConversationId || generateConversationId(user.uid, otherUserId);
-
-        console.log('🔑 Setting conversation ID:', finalConversationId);
         setConversationId(finalConversationId);
     }, [authLoading, user, otherUserId, params.conversationId]);
 
-    // validate auth and params, then initialize the chat
+    // Validate and initialize
     useEffect(() => {
-        // wait for auth to finish loading
-        if (authLoading) {
-            console.log('⏳ Waiting for auth to load...');
-            return;
-        }
+        if (authLoading) return;
 
-        // check authentication - show error only once
         if (!user) {
             if (!hasShownAuthError.current) {
                 hasShownAuthError.current = true;
-                console.error('❌ User not authenticated');
                 Alert.alert('Error', 'Please login to access messages', [
                     { text: 'OK', onPress: () => router.replace('/(public)/login') }
                 ]);
@@ -94,11 +109,9 @@ export default function ChatRoomScreen() {
             return;
         }
 
-        // validate required params - show error only once
         if (!otherUserId) {
             if (!hasShownParamsError.current) {
                 hasShownParamsError.current = true;
-                console.error('❌ Missing otherUserId');
                 Alert.alert('Error', 'Invalid conversation', [
                     { text: 'OK', onPress: () => {
                             if (router.canGoBack()) {
@@ -112,34 +125,15 @@ export default function ChatRoomScreen() {
             return;
         }
 
-        // wait for conversationId to be set
-        if (!conversationId) {
-            console.log('⏳ Waiting for conversation ID...');
-            return;
-        }
+        if (!conversationId || isInitializing.current) return;
 
-        // prevent multiple initialization attempts
-        if (isInitializing.current) {
-            console.log('⏳ Already initializing...');
-            return;
-        }
-
-        console.log('💬 Setting up chat room');
-        console.log('   Conversation ID:', conversationId);
-        console.log('   Current User:', user.uid);
-        console.log('   Other User:', otherUserId);
-
-        // initialize the conversation document
         initializeChat();
     }, [authLoading, user, conversationId, otherUserId]);
 
-    // set up real-time message listener once conversation is ready
+    // Listen to messages
     useEffect(() => {
         if (!conversationReady || !conversationId || !user) return;
 
-        console.log('📡 Setting up message listener...');
-
-        // listen to messages in this conversation
         const messagesRef = collection(db, 'conversations', conversationId, 'messages');
         const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
@@ -148,55 +142,44 @@ export default function ChatRoomScreen() {
             (snapshot) => {
                 const loadedMessages: Message[] = [];
                 snapshot.forEach((doc) => {
+                    const data = doc.data();
                     loadedMessages.push({
                         id: doc.id,
-                        ...doc.data(),
+                        ...data,
                     } as Message);
                 });
 
-                console.log('📨 Loaded', loadedMessages.length, 'messages');
                 setMessages(loadedMessages);
                 setLoading(false);
-
-                // mark new messages as read
                 markMessagesAsRead(snapshot);
 
-                // auto-scroll to bottom when new messages arrive
                 setTimeout(() => {
                     flatListRef.current?.scrollToEnd({ animated: true });
                 }, 100);
             },
             (error) => {
-                console.error('❌ Error loading messages:', error);
+                console.error('Error loading messages:', error);
                 setLoading(false);
-                Alert.alert('Error', 'Failed to load messages. Please check your permissions.');
+                Alert.alert('Error', 'Failed to load messages');
             }
         );
 
         return () => unsubscribe();
     }, [conversationReady, conversationId, user]);
 
-    // create conversation document if it doesn't exist, or fix if corrupted
     const initializeChat = async () => {
         if (!user || !conversationId || !otherUserId || isInitializing.current) return;
-
-        // mark as initializing to prevent duplicates
         isInitializing.current = true;
 
         try {
-            console.log('🔍 Verifying/Creating conversation...');
             const conversationRef = doc(db, 'conversations', conversationId);
             const conversationDoc = await getDoc(conversationRef);
 
             if (!conversationDoc.exists()) {
-                console.log('🆕 Creating new conversation...');
-
-                // get current user's display name
                 const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                 const currentUserData = currentUserDoc.data();
                 const currentUserName = currentUserData?.displayName || user.email || 'User';
 
-                // get other user's name if not provided in params
                 let otherName = otherUserName;
                 if (!otherName) {
                     const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
@@ -204,7 +187,6 @@ export default function ChatRoomScreen() {
                     otherName = otherUserData?.displayName || otherUserData?.email || 'User';
                 }
 
-                // create new conversation document with all fields
                 await setDoc(conversationRef, {
                     participants: [user.uid, otherUserId],
                     participantNames: {
@@ -221,103 +203,60 @@ export default function ChatRoomScreen() {
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
-
-                console.log('✅ Conversation created successfully');
-            } else {
-                console.log('✅ Conversation already exists');
-
-                // fix participant list if needed (handles edge cases)
-                const data = conversationDoc.data();
-                const participants = data?.participants || [];
-
-                if (!participants.includes(user.uid) || !participants.includes(otherUserId)) {
-                    console.log('🔧 Fixing participant list...');
-
-                    // fetch user names again
-                    const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
-                    const currentUserData = currentUserDoc.data();
-                    const currentUserName = currentUserData?.displayName || user.email || 'User';
-
-                    const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-                    const otherUserData = otherUserDoc.data();
-                    const otherName = otherUserData?.displayName || otherUserData?.email || 'User';
-
-                    await updateDoc(conversationRef, {
-                        participants: [user.uid, otherUserId],
-                        participantNames: {
-                            [user.uid]: currentUserName,
-                            [otherUserId]: otherName,
-                        },
-                        updatedAt: new Date().toISOString(),
-                    });
-
-                    console.log('✅ Participant list fixed');
-                }
             }
 
-            // conversation is ready to use
             setConversationReady(true);
         } catch (error) {
-            console.error('❌ Error initializing conversation:', error);
-            Alert.alert('Error', 'Failed to initialize conversation. Please check Firestore permissions.');
+            console.error('Error initializing conversation:', error);
+            Alert.alert('Error', 'Failed to initialize conversation');
             setLoading(false);
         } finally {
-            // reset flag so it can be retried if needed
             isInitializing.current = false;
         }
     };
 
-    // mark messages from other user as read
     const markMessagesAsRead = async (snapshot: any) => {
         if (!user) return;
 
         const batch: Promise<void>[] = [];
-
-        // find unread messages from the other user
         snapshot.forEach((doc: any) => {
             const data = doc.data();
             if (data.senderId !== user.uid && !data.read) {
-                batch.push(
-                    updateDoc(doc.ref, { read: true })
-                );
+                batch.push(updateDoc(doc.ref, { read: true }));
             }
         });
 
-        // update all unread messages
         if (batch.length > 0) {
             try {
                 await Promise.all(batch);
-
-                // reset unread count in conversation document
                 const conversationRef = doc(db, 'conversations', conversationId);
                 await updateDoc(conversationRef, {
                     [`unreadCount.${user.uid}`]: 0,
                 });
             } catch (error) {
-                console.error('⚠️ Error marking messages as read:', error);
+                console.error('Error marking messages as read:', error);
             }
         }
     };
 
-    // send a new message
+    // Send regular text message
     const handleSend = async () => {
         if (!messageText.trim() || !user || !conversationId || !conversationReady) return;
 
         const text = messageText.trim();
-        setMessageText(''); // clear input immediately for better UX
+        setMessageText('');
         setSending(true);
 
         try {
-            console.log('📤 Sending message:', text);
-
-            // get current user's display name
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
             const currentUserName = currentUserData?.displayName || user.email || 'User';
 
-            // add message to messages subcollection
             const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+
+            // ✅ IMPORTANT: Include 'type' field for text messages
             await addDoc(messagesRef, {
+                type: 'text',
                 senderId: user.uid,
                 senderName: currentUserName,
                 text: text,
@@ -325,10 +264,7 @@ export default function ChatRoomScreen() {
                 read: false,
             });
 
-            // update conversation document with latest message info
             const conversationRef = doc(db, 'conversations', conversationId);
-
-            // increment unread count for the other user
             const conversationDoc = await getDoc(conversationRef);
             const conversationData = conversationDoc.data();
             const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
@@ -340,51 +276,386 @@ export default function ChatRoomScreen() {
                 [`unreadCount.${otherUserId}`]: currentUnreadCount + 1,
                 updatedAt: new Date().toISOString(),
             });
-
-            console.log('✅ Message sent successfully');
-        } catch (error) {
+        } catch (error: any) {
             console.error('❌ Error sending message:', error);
-            Alert.alert('Error', 'Failed to send message. Please check your permissions.');
-            setMessageText(text); // restore message if send failed
+            console.error('❌ Error code:', error.code);
+            console.error('❌ Error message:', error.message);
+            Alert.alert('Error', 'Failed to send message. Please check your connection.');
         } finally {
             setSending(false);
         }
     };
 
-    // format timestamp for display (show time if today, date if older)
-    const formatTime = (timestamp: any) => {
-        if (!timestamp) return '';
+    // ✅ FIXED: Send payment request with all required fields
+    const sendPaymentRequest = async () => {
+        if (!user || !conversationId || !conversationReady) {
+            Alert.alert('Error', 'Chat not ready. Please try again.');
+            return;
+        }
+
+        const amount = parseFloat(paymentAmount);
+        if (isNaN(amount) || amount <= 0) {
+            Alert.alert('Error', 'Please enter a valid amount');
+            return;
+        }
+
+        if (!paymentDescription.trim()) {
+            Alert.alert('Error', 'Please enter a description');
+            return;
+        }
+
+        setSendingPaymentRequest(true);
 
         try {
-            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-            const now = new Date();
-            const diff = now.getTime() - date.getTime();
-            const diffHours = Math.floor(diff / 3600000);
+            console.log('💰 Sending payment request...');
 
-            if (diffHours < 24) {
-                // show time for messages within last 24 hours
-                return date.toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                });
+            // Get current user info
+            const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+            const currentUserData = currentUserDoc.data();
+            const currentUserName = currentUserData?.displayName || user.email || 'User';
+
+            const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+
+            // ✅ CRITICAL: Create payment request with ALL required fields
+            const paymentRequestData = {
+                type: 'payment_request',
+                senderId: user.uid,
+                senderName: currentUserName,
+                amount: amount,
+                description: paymentDescription.trim(),
+                status: 'pending',
+                timestamp: Timestamp.now(),
+                read: false,
+            };
+
+            console.log('📤 Payment request data:', paymentRequestData);
+
+            await addDoc(messagesRef, paymentRequestData);
+
+            console.log('✅ Payment request sent successfully');
+
+            // Update conversation metadata
+            const conversationRef = doc(db, 'conversations', conversationId);
+            const conversationDoc = await getDoc(conversationRef);
+            const conversationData = conversationDoc.data();
+            const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
+
+            await updateDoc(conversationRef, {
+                lastMessage: `💰 Payment request: $${amount.toFixed(2)}`,
+                lastMessageTime: new Date().toISOString(),
+                lastMessageSender: user.uid,
+                [`unreadCount.${otherUserId}`]: currentUnreadCount + 1,
+                updatedAt: new Date().toISOString(),
+            });
+
+            // Close modal and reset
+            setShowPaymentModal(false);
+            setPaymentAmount('');
+            setPaymentDescription('');
+
+            Alert.alert('Success', 'Payment request sent!');
+        } catch (error: any) {
+            console.error('❌ Error sending payment request:', error);
+            console.error('❌ Error code:', error.code);
+            console.error('❌ Error message:', error.message);
+
+            // More specific error messages
+            if (error.code === 'permission-denied') {
+                Alert.alert(
+                    'Permission Denied',
+                    'Unable to send payment request. Please make sure your Firebase rules are updated correctly.'
+                );
             } else {
-                // show date and time for older messages
-                return date.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                });
+                Alert.alert('Error', `Failed to send payment request: ${error.message}`);
             }
+        } finally {
+            setSendingPaymentRequest(false);
+        }
+    };
+
+    // Handle payment for a payment request
+    const handlePaymentRequest = async (message: PaymentRequestMessage) => {
+        if (!user) {
+            Alert.alert('Error', 'Please login to make a payment');
+            return;
+        }
+
+        setProcessingPayment(message.id);
+
+        try {
+            console.log('💳 Processing payment...');
+            console.log('💳 Amount:', message.amount);
+            console.log('💳 Description:', message.description);
+
+            // IMPORTANT: Check if backend is reachable
+            console.log('🔗 Checking backend connection...');
+
+            // Create payment intent with proper error handling
+            let paymentData;
+            try {
+                paymentData = await paymentService.createPaymentIntent(
+                    message.amount,
+                    'usd',
+                    message.description,
+                    undefined
+                );
+            } catch (apiError: any) {
+                console.error('❌ API Error:', apiError);
+                console.error('❌ API Error Response:', apiError.response?.data);
+                console.error('❌ API Error Status:', apiError.response?.status);
+
+                // More specific error messages
+                if (apiError.code === 'ECONNABORTED' || apiError.code === 'ECONNREFUSED') {
+                    Alert.alert(
+                        'Connection Error',
+                        'Cannot connect to the payment server. Please check:\n\n' +
+                        '1. Backend server is running\n' +
+                        '2. API URL is correct in apiService.ts\n' +
+                        '3. Your phone and computer are on the same WiFi'
+                    );
+                } else if (apiError.response?.status === 400) {
+                    Alert.alert(
+                        'Validation Error',
+                        apiError.response?.data?.message || 'Invalid payment details'
+                    );
+                } else if (apiError.response?.status === 401) {
+                    Alert.alert(
+                        'Authentication Error',
+                        'Please log out and log back in'
+                    );
+                } else if (apiError.response?.status === 500) {
+                    Alert.alert(
+                        'Server Error',
+                        'The payment server encountered an error. Please try again.'
+                    );
+                } else if (!apiError.response) {
+                    Alert.alert(
+                        'Network Error',
+                        'Cannot reach the payment server. Please check:\n\n' +
+                        '1. Your internet connection\n' +
+                        '2. Backend server is running\n' +
+                        '3. API_BASE_URL in apiService.ts is correct'
+                    );
+                } else {
+                    Alert.alert(
+                        'Payment Error',
+                        apiError.message || 'Failed to create payment. Please try again.'
+                    );
+                }
+
+                setProcessingPayment(null);
+                return;
+            }
+
+            console.log('✅ Payment intent created:', paymentData.paymentIntentId);
+
+            // Validate payment data
+            if (!paymentData.clientSecret) {
+                console.error('❌ No client secret received');
+                Alert.alert('Error', 'Invalid payment response from server');
+                setProcessingPayment(null);
+                return;
+            }
+
+            // Initialize payment sheet
+            console.log('💳 Initializing payment sheet...');
+            const { error: initError } = await initPaymentSheet({
+                merchantDisplayName: 'SkillSwap',
+                paymentIntentClientSecret: paymentData.clientSecret,
+                defaultBillingDetails: {
+                    name: user.displayName || user.email || 'User',
+                    email: user.email || '',
+                },
+                appearance: {
+                    colors: {
+                        primary: '#007AFF',
+                    },
+                },
+            });
+
+            if (initError) {
+                console.error('❌ Payment sheet init error:', initError);
+                Alert.alert('Payment Setup Error', initError.message);
+                setProcessingPayment(null);
+                return;
+            }
+
+            console.log('✅ Payment sheet initialized');
+
+            // Present payment sheet
+            console.log('💳 Presenting payment sheet...');
+            const { error: presentError } = await presentPaymentSheet();
+
+            if (presentError) {
+                if (presentError.code === 'Canceled') {
+                    console.log('ℹ️ User cancelled payment');
+                } else {
+                    console.error('❌ Payment presentation error:', presentError);
+                    Alert.alert('Payment Failed', presentError.message);
+                }
+                setProcessingPayment(null);
+                return;
+            }
+
+            console.log('✅ Payment successful');
+
+            // Update message status in Firestore
+            try {
+                const messageRef = doc(db, 'conversations', conversationId, 'messages', message.id);
+                await updateDoc(messageRef, {
+                    status: 'paid',
+                    paymentIntentId: paymentData.paymentIntentId,
+                });
+                console.log('✅ Message status updated');
+            } catch (updateError) {
+                console.error('❌ Error updating message status:', updateError);
+                // Payment succeeded but status update failed - not critical
+            }
+
+            // Save payment to history
+            try {
+                await addDoc(collection(db, 'payments'), {
+                    userId: user.uid,
+                    userEmail: user.email,
+                    userName: user.displayName || user.email,
+                    skillName: message.description,
+                    instructor: message.senderName,
+                    amount: message.amount,
+                    currency: 'usd',
+                    paymentIntentId: paymentData.paymentIntentId,
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                    createdAt: new Date(),
+                });
+                console.log('✅ Payment saved to history');
+            } catch (historyError) {
+                console.error('⚠️ Could not save to payment history:', historyError);
+                // Not critical - payment still succeeded
+            }
+
+            Alert.alert('Success! 🎉', 'Payment completed successfully');
+        } catch (error: any) {
+            console.error('❌ Unexpected payment error:', error);
+            Alert.alert(
+                'Payment Error',
+                error.message || 'An unexpected error occurred. Please try again.'
+            );
+        } finally {
+            setProcessingPayment(null);
+        }
+    };
+
+    // Decline payment request
+    const handleDeclinePayment = async (messageId: string) => {
+        try {
+            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+            await updateDoc(messageRef, {
+                status: 'declined',
+            });
+            Alert.alert('Declined', 'Payment request declined');
+        } catch (error) {
+            console.error('Error declining payment:', error);
+            Alert.alert('Error', 'Failed to decline payment request');
+        }
+    };
+
+    // Cancel payment request (sender only)
+    const handleCancelPayment = async (messageId: string) => {
+        try {
+            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+            await updateDoc(messageRef, {
+                status: 'cancelled',
+            });
+            Alert.alert('Cancelled', 'Payment request cancelled');
+        } catch (error) {
+            console.error('Error cancelling payment:', error);
+            Alert.alert('Error', 'Failed to cancel payment request');
+        }
+    };
+
+    // Format timestamp
+    const formatTime = (timestamp: any) => {
+        try {
+            const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         } catch {
             return '';
         }
     };
 
-    // render individual message bubble
+    // Render message item
     const renderMessage = ({ item }: { item: Message }) => {
         const isMyMessage = item.senderId === user?.uid;
 
+        if (item.type === 'payment_request') {
+            const paymentMsg = item as PaymentRequestMessage;
+            const isProcessing = processingPayment === item.id;
+
+            return (
+                <View style={styles.paymentMessageContainer}>
+                    <View style={styles.paymentCard}>
+                        <View style={styles.paymentHeader}>
+                            <Text style={styles.paymentTitle}>Payment Request</Text>
+                            <View
+                                style={[
+                                    styles.paymentStatusBadge,
+                                    paymentMsg.status === 'paid' && styles.paymentStatusPaid,
+                                    paymentMsg.status === 'declined' && styles.paymentStatusDeclined,
+                                    paymentMsg.status === 'cancelled' && styles.paymentStatusCancelled,
+                                ]}
+                            >
+                                <Text style={styles.paymentStatusText}>
+                                    {paymentMsg.status.toUpperCase()}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <Text style={styles.paymentAmount}>${paymentMsg.amount.toFixed(2)}</Text>
+                        <Text style={styles.paymentDescription}>{paymentMsg.description}</Text>
+                        <Text style={styles.paymentFrom}>
+                            From: {item.senderName}
+                        </Text>
+
+                        {!isMyMessage && paymentMsg.status === 'pending' && (
+                            <View style={styles.paymentActions}>
+                                <TouchableOpacity
+                                    style={[styles.paymentButton, styles.payButton]}
+                                    onPress={() => handlePaymentRequest(paymentMsg)}
+                                    disabled={isProcessing}
+                                >
+                                    {isProcessing ? (
+                                        <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                        <Text style={styles.payButtonText}>Pay Now</Text>
+                                    )}
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.paymentButton, styles.declineButton]}
+                                    onPress={() => handleDeclinePayment(item.id)}
+                                    disabled={isProcessing}
+                                >
+                                    <Text style={styles.declineButtonText}>Decline</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {isMyMessage && paymentMsg.status === 'pending' && (
+                            <TouchableOpacity
+                                style={[styles.paymentButton, styles.cancelButton]}
+                                onPress={() => handleCancelPayment(item.id)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel Request</Text>
+                            </TouchableOpacity>
+                        )}
+
+                        <Text style={styles.paymentTime}>{formatTime(item.timestamp)}</Text>
+                    </View>
+                </View>
+            );
+        }
+
+        // Regular text message
+        const textMsg = item as TextMessage;
         return (
             <View
                 style={[
@@ -392,23 +663,22 @@ export default function ChatRoomScreen() {
                     isMyMessage ? styles.myMessageContainer : styles.theirMessageContainer,
                 ]}
             >
+                {!isMyMessage && (
+                    <Text style={styles.senderName}>{item.senderName}</Text>
+                )}
                 <View
                     style={[
                         styles.messageBubble,
                         isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble,
                     ]}
                 >
-                    {/* show sender name for messages from other user */}
-                    {!isMyMessage && (
-                        <Text style={styles.senderName}>{item.senderName}</Text>
-                    )}
                     <Text
                         style={[
                             styles.messageText,
                             isMyMessage ? styles.myMessageText : styles.theirMessageText,
                         ]}
                     >
-                        {item.text}
+                        {textMsg.text}
                     </Text>
                     <Text
                         style={[
@@ -423,20 +693,12 @@ export default function ChatRoomScreen() {
         );
     };
 
-    // show loading state
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <Text style={styles.backButtonText}>←</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
-                    <View style={{ width: 40 }} />
-                </View>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#007AFF" />
-                    <Text style={styles.loadingText}>Loading chat...</Text>
+                    <Text style={styles.loadingText}>Loading messages...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -444,53 +706,53 @@ export default function ChatRoomScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom']}>
-            {/* header with back button and other user's name */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Text style={styles.backButtonText}>←</Text>
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
-                <View style={{ width: 40 }} />
-            </View>
-
             <KeyboardAvoidingView
-                style={styles.keyboardView}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={0}
+                style={{ flex: 1 }}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
-                {/* show empty state or message list */}
-                {messages.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>💬</Text>
-                        <Text style={styles.emptyText}>No messages yet</Text>
-                        <Text style={styles.emptySubtext}>
-                            Start the conversation with {otherUserName}
-                        </Text>
+                {/* Header */}
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Text style={styles.backButtonText}>←</Text>
+                    </TouchableOpacity>
+                    <View style={styles.headerInfo}>
+                        <Text style={styles.headerName}>{otherUserName || 'User'}</Text>
                     </View>
-                ) : (
-                    <FlatList
-                        ref={flatListRef}
-                        data={messages}
-                        renderItem={renderMessage}
-                        keyExtractor={(item) => item.id}
-                        contentContainerStyle={styles.messagesList}
-                        onContentSizeChange={() =>
-                            flatListRef.current?.scrollToEnd({ animated: true })
-                        }
-                    />
-                )}
+                    <View style={{ width: 40 }} />
+                </View>
 
-                {/* message input and send button */}
+                {/* Messages list */}
+                <FlatList
+                    ref={flatListRef}
+                    data={messages}
+                    renderItem={renderMessage}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={styles.messagesList}
+                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                />
+
+                {/* ✅ UPDATED: Input area with payment button beside send button */}
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.input}
                         placeholder="Type a message..."
+                        placeholderTextColor="#999"
                         value={messageText}
                         onChangeText={setMessageText}
                         multiline
-                        maxLength={1000}
-                        placeholderTextColor="#999"
                     />
+
+                    {/* Payment button */}
+                    <TouchableOpacity
+                        style={styles.paymentIconButton}
+                        onPress={() => setShowPaymentModal(true)}
+                        disabled={!conversationReady}
+                    >
+                        <Text style={styles.paymentIconText}>💰</Text>
+                    </TouchableOpacity>
+
+                    {/* Send button */}
                     <TouchableOpacity
                         style={[
                             styles.sendButton,
@@ -500,13 +762,75 @@ export default function ChatRoomScreen() {
                         disabled={!messageText.trim() || sending || !conversationReady}
                     >
                         {sending ? (
-                            <ActivityIndicator size="small" color="#fff" />
+                            <ActivityIndicator color="#fff" size="small" />
                         ) : (
                             <Text style={styles.sendButtonText}>Send</Text>
                         )}
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* Payment request modal */}
+            <Modal visible={showPaymentModal} animationType="slide" transparent>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Request Payment</Text>
+                            <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                                <Text style={styles.modalCloseText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalBody}>
+                            <Text style={styles.modalLabel}>Amount ($)</Text>
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="0.00"
+                                placeholderTextColor="#999"
+                                value={paymentAmount}
+                                onChangeText={setPaymentAmount}
+                                keyboardType="decimal-pad"
+                            />
+
+                            <Text style={styles.modalLabel}>Description</Text>
+                            <TextInput
+                                style={[styles.modalInput, styles.modalTextArea]}
+                                placeholder="What's this payment for?"
+                                placeholderTextColor="#999"
+                                value={paymentDescription}
+                                onChangeText={setPaymentDescription}
+                                multiline
+                                numberOfLines={3}
+                            />
+
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity
+                                    style={[styles.modalButton, styles.modalCancelButton]}
+                                    onPress={() => setShowPaymentModal(false)}
+                                    disabled={sendingPaymentRequest}
+                                >
+                                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.modalButton,
+                                        styles.modalSendButton,
+                                        sendingPaymentRequest && styles.modalButtonDisabled,
+                                    ]}
+                                    onPress={sendPaymentRequest}
+                                    disabled={sendingPaymentRequest}
+                                >
+                                    {sendingPaymentRequest ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <Text style={styles.modalSendButtonText}>Send Request</Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -516,11 +840,21 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f5f5f5',
     },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 12,
+        fontSize: 16,
+        color: '#666',
+    },
     header: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 16,
+        justifyContent: 'space-between',
+        padding: 12,
         backgroundColor: '#fff',
         borderBottomWidth: 1,
         borderBottomColor: '#e0e0e0',
@@ -536,45 +870,14 @@ const styles = StyleSheet.create({
         color: '#007AFF',
         fontWeight: 'bold',
     },
-    headerTitle: {
+    headerInfo: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    headerName: {
         fontSize: 18,
         fontWeight: '600',
         color: '#333',
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
-    },
-    keyboardView: {
-        flex: 1,
-    },
-    emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 40,
-    },
-    emptyIcon: {
-        fontSize: 64,
-        marginBottom: 16,
-    },
-    emptyText: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 8,
-        textAlign: 'center',
-    },
-    emptySubtext: {
-        fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
     },
     messagesList: {
         padding: 16,
@@ -629,6 +932,113 @@ const styles = StyleSheet.create({
     theirMessageTime: {
         color: '#999',
     },
+    // Payment message styles
+    paymentMessageContainer: {
+        marginBottom: 16,
+        alignItems: 'center',
+    },
+    paymentCard: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 16,
+        width: '90%',
+        borderWidth: 2,
+        borderColor: '#007AFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    paymentHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    paymentTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#333',
+    },
+    paymentStatusBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        backgroundColor: '#FFF3E0',
+    },
+    paymentStatusPaid: {
+        backgroundColor: '#E8F5E9',
+    },
+    paymentStatusDeclined: {
+        backgroundColor: '#FFEBEE',
+    },
+    paymentStatusCancelled: {
+        backgroundColor: '#F5F5F5',
+    },
+    paymentStatusText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#FF9800',
+    },
+    paymentAmount: {
+        fontSize: 32,
+        fontWeight: 'bold',
+        color: '#007AFF',
+        marginBottom: 8,
+    },
+    paymentDescription: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 8,
+    },
+    paymentFrom: {
+        fontSize: 12,
+        color: '#999',
+        marginBottom: 12,
+    },
+    paymentActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 8,
+    },
+    paymentButton: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    payButton: {
+        backgroundColor: '#4CAF50',
+    },
+    payButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    declineButton: {
+        backgroundColor: '#f0f0f0',
+    },
+    declineButtonText: {
+        color: '#666',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    cancelButton: {
+        backgroundColor: '#f0f0f0',
+        marginBottom: 8,
+    },
+    cancelButtonText: {
+        color: '#666',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    paymentTime: {
+        fontSize: 11,
+        color: '#999',
+        textAlign: 'center',
+    },
+    // ✅ UPDATED: Input area with payment button
     inputContainer: {
         flexDirection: 'row',
         padding: 12,
@@ -648,6 +1058,18 @@ const styles = StyleSheet.create({
         maxHeight: 100,
         color: '#333',
     },
+    paymentIconButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#4CAF50',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 8,
+    },
+    paymentIconText: {
+        fontSize: 20,
+    },
     sendButton: {
         backgroundColor: '#007AFF',
         paddingHorizontal: 20,
@@ -661,6 +1083,89 @@ const styles = StyleSheet.create({
         backgroundColor: '#ccc',
     },
     sendButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    // Modal styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingBottom: 40,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e0e0e0',
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    modalCloseText: {
+        fontSize: 24,
+        color: '#666',
+        fontWeight: 'bold',
+    },
+    modalBody: {
+        padding: 20,
+    },
+    modalLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 8,
+    },
+    modalInput: {
+        backgroundColor: '#f5f5f5',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        color: '#333',
+        marginBottom: 16,
+    },
+    modalTextArea: {
+        textAlignVertical: 'top',
+        minHeight: 80,
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 8,
+    },
+    modalButton: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    modalCancelButton: {
+        backgroundColor: '#f0f0f0',
+    },
+    modalSendButton: {
+        backgroundColor: '#007AFF',
+    },
+    modalButtonDisabled: {
+        opacity: 0.6,
+    },
+    modalCancelButtonText: {
+        color: '#666',
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    modalSendButtonText: {
         color: '#fff',
         fontWeight: '600',
         fontSize: 16,
