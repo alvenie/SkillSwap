@@ -8,523 +8,355 @@ import {
     ActivityIndicator,
     Alert,
     RefreshControl,
-    Modal,
     TextInput,
-    Switch,
+    Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
+import { generateConversationId } from '../../utils/conversationUtils';
 
-// Structure for a skill listing
-interface Skill {
+// User profile with skills
+interface UserWithSkills {
     id: string;
-    userId: string;
-    userName: string;
-    userEmail: string;
-    skillName: string;
-    category: string;
-    description: string;
-    price: number;
-    duration: string;
-    isAvailable: boolean;
-    createdAt: string;
-    updatedAt: string;
+    uid: string;
+    displayName: string;
+    email: string;
+    skillsTeaching: string[];
+    skillsLearning: string[];
+    bio?: string;
+    location?: string;
+    status: 'online' | 'offline' | 'in-call';
 }
-
-type TabType = 'browse' | 'manage';
 
 export default function SkillsScreen() {
     const { user } = useAuth();
     const router = useRouter();
 
-    // Main tab state - switches between browsing skills and managing your own
-    const [activeTab, setActiveTab] = useState<TabType>('browse');
+    // State for user discovery
+    const [users, setUsers] = useState<UserWithSkills[]>([]);
+    const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-
-    // Browse tab state - for discovering skills from others
-    const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
-    const [filteredSkills, setFilteredSkills] = useState<Skill[]>([]);
     const [searchText, setSearchText] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<string>('All');
+    const [selectedSkill, setSelectedSkill] = useState<string>('All');
 
-    // Manage tab state - for handling your own skills
-    const [mySkills, setMySkills] = useState<Skill[]>([]);
-    const [showModal, setShowModal] = useState(false);
-    const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
-    const [formData, setFormData] = useState({
-        skillName: '',
-        category: '',
-        description: '',
-        price: '',
-        duration: '1 hour',
-        isAvailable: true,
-    });
+    // Friend request tracking
+    const [sentRequests, setSentRequests] = useState<string[]>([]);
+    const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
-    // Predefined categories and durations
-    const CATEGORIES = ['All', 'Music', 'Technology', 'Language', 'Fitness', 'Arts', 'Business', 'Other'];
-    const DURATIONS = ['30 mins', '1 hour', '1.5 hours', '2 hours', '3 hours', 'Custom'];
+    // Modal for friend requests
+    const [selectedUser, setSelectedUser] = useState<UserWithSkills | null>(null);
+    const [showRequestModal, setShowRequestModal] = useState(false);
+    const [requestMessage, setRequestMessage] = useState('');
+    const [sending, setSending] = useState(false);
 
-    // Reload skills when screen comes into focus
+    // Get all unique skills from all users
+    const [allSkills, setAllSkills] = useState<string[]>(['All']);
+
+    // Load data when screen comes into focus
     useFocusEffect(
         useCallback(() => {
-            loadSkills();
-        }, [activeTab])
+            loadUsers();
+            loadSentRequests();
+            loadExistingFriends();
+        }, [])
     );
 
-    // Also load when tab changes
-    useEffect(() => {
-        loadSkills();
-    }, [activeTab]);
-
-    // Main function to fetch skills from database
-    const loadSkills = async () => {
-        if (!user) {
-            setLoading(false);
-            return;
-        }
-
+    // Load all users with skills
+    const loadUsers = async () => {
         try {
             setLoading(true);
-            const skillsRef = collection(db, 'skills');
+            const usersRef = collection(db, 'users');
+            const querySnapshot = await getDocs(usersRef);
+            const usersData: UserWithSkills[] = [];
+            const skillsSet = new Set<string>();
 
-            if (activeTab === 'browse') {
-                // Browse mode: get all available skills except your own
-                const q = query(skillsRef, where('isAvailable', '==', true));
-                const querySnapshot = await getDocs(q);
-
-                const skills: Skill[] = [];
-                querySnapshot.forEach((doc) => {
-                    // Filter out user's own skills from browse view
-                    if (doc.data().userId !== user.uid) {
-                        skills.push({
+            querySnapshot.forEach((doc) => {
+                // Exclude current user
+                if (doc.id !== user?.uid) {
+                    const data = doc.data();
+                    // Only include users with skills
+                    if (
+                        (data.skillsTeaching && data.skillsTeaching.length > 0) ||
+                        (data.skillsLearning && data.skillsLearning.length > 0)
+                    ) {
+                        usersData.push({
                             id: doc.id,
-                            ...doc.data(),
-                        } as Skill);
+                            uid: doc.id,
+                            displayName: data.displayName || data.email || 'User',
+                            email: data.email || '',
+                            skillsTeaching: data.skillsTeaching || [],
+                            skillsLearning: data.skillsLearning || [],
+                            bio: data.bio || '',
+                            location: data.location || '',
+                            status: data.status || 'offline',
+                        });
+
+                        // Collect all unique skills
+                        data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
+                        data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
                     }
-                });
+                }
+            });
 
-                setAvailableSkills(skills);
-                setFilteredSkills(skills);
-            } else {
-                // Manage mode: get only your skills
-                const q = query(skillsRef, where('userId', '==', user.uid));
-                const querySnapshot = await getDocs(q);
-
-                const skills: Skill[] = [];
-                querySnapshot.forEach((doc) => {
-                    skills.push({
-                        id: doc.id,
-                        ...doc.data(),
-                    } as Skill);
-                });
-
-                // Sort by newest first
-                setMySkills(skills.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-            }
+            setUsers(usersData);
+            setFilteredUsers(usersData);
+            setAllSkills(['All', ...Array.from(skillsSet).sort()]);
         } catch (error: any) {
-            console.error('Error loading skills:', error);
-            Alert.alert('Error', 'Could not load skills. Please try again.');
+            console.error('Error loading users:', error);
+            Alert.alert('Error', 'Failed to load users');
         } finally {
             setLoading(false);
             setRefreshing(false);
         }
     };
 
-    // Handle search input changes
+    // Load sent friend requests
+    const loadSentRequests = async () => {
+        if (!user) return;
+        try {
+            const requestsRef = collection(db, 'friendRequests');
+            const q = query(requestsRef, where('fromUserId', '==', user.uid));
+            const querySnapshot = await getDocs(q);
+            const sentRequestIds: string[] = [];
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.status === 'pending') {
+                    sentRequestIds.push(data.toUserId);
+                }
+            });
+            setSentRequests(sentRequestIds);
+        } catch (error) {
+            console.error('Error loading sent requests:', error);
+        }
+    };
+
+    // Load existing friends
+    const loadExistingFriends = async () => {
+        if (!user) return;
+        try {
+            const friendsRef = collection(db, 'friends');
+            const q = query(friendsRef, where('userId', '==', user.uid));
+            const querySnapshot = await getDocs(q);
+            const friendIds: string[] = [];
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                friendIds.push(data.friendId);
+            });
+            setExistingFriends(friendIds);
+        } catch (error) {
+            console.error('Error loading friends:', error);
+        }
+    };
+
+    // Filter users by search text and selected skill
     const handleSearch = (text: string) => {
         setSearchText(text);
-        filterSkills(text, selectedCategory);
+        filterUsers(text, selectedSkill);
     };
 
-    // Handle category filter selection
-    const handleCategoryFilter = (category: string) => {
-        setSelectedCategory(category);
-        filterSkills(searchText, category);
+    const handleSkillFilter = (skill: string) => {
+        setSelectedSkill(skill);
+        filterUsers(searchText, skill);
     };
 
-    // Filter skills based on search text and category
-    const filterSkills = (search: string, category: string) => {
-        let filtered = availableSkills;
+    const filterUsers = (search: string, skill: string) => {
+        let filtered = users;
 
-        // Apply category filter first
-        if (category !== 'All') {
-            filtered = filtered.filter(skill => skill.category === category);
-        }
-
-        // Then apply search filter if there's text
-        if (search.trim()) {
-            filtered = filtered.filter(skill =>
-                skill.skillName.toLowerCase().includes(search.toLowerCase()) ||
-                skill.description.toLowerCase().includes(search.toLowerCase()) ||
-                skill.userName.toLowerCase().includes(search.toLowerCase())
+        // Filter by skill
+        if (skill !== 'All') {
+            filtered = filtered.filter(u =>
+                u.skillsTeaching.includes(skill) || u.skillsLearning.includes(skill)
             );
         }
 
-        setFilteredSkills(filtered);
+        // Filter by search text
+        if (search.trim()) {
+            filtered = filtered.filter(u =>
+                u.displayName.toLowerCase().includes(search.toLowerCase()) ||
+                u.email.toLowerCase().includes(search.toLowerCase()) ||
+                u.bio?.toLowerCase().includes(search.toLowerCase()) ||
+                u.skillsTeaching.some(s => s.toLowerCase().includes(search.toLowerCase())) ||
+                u.skillsLearning.some(s => s.toLowerCase().includes(search.toLowerCase()))
+            );
+        }
+
+        setFilteredUsers(filtered);
     };
 
-    // Navigate to payment screen when user wants to book
-    const handleBookSkill = (skill: Skill) => {
+    // Open friend request modal
+    const openRequestModal = (targetUser: UserWithSkills) => {
+        setSelectedUser(targetUser);
+        setRequestMessage('');
+        setShowRequestModal(true);
+    };
+
+    // Send friend request
+    const sendFriendRequest = async () => {
+        if (!user || !selectedUser) return;
+        try {
+            setSending(true);
+            const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+            const currentUserData = currentUserDoc.data();
+
+            await addDoc(collection(db, 'friendRequests'), {
+                fromUserId: user.uid,
+                fromUserName: currentUserData?.displayName || user.email || 'User',
+                fromUserEmail: user.email || '',
+                toUserId: selectedUser.uid,
+                toUserName: selectedUser.displayName,
+                toUserEmail: selectedUser.email,
+                status: 'pending',
+                message: requestMessage.trim(),
+                createdAt: new Date().toISOString(),
+            });
+
+            Alert.alert('Request Sent! 🎉', `Friend request sent to ${selectedUser.displayName}`);
+            setShowRequestModal(false);
+            setSentRequests([...sentRequests, selectedUser.uid]);
+        } catch (error: any) {
+            console.error('Error sending friend request:', error);
+            Alert.alert('Error', 'Failed to send friend request');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    // Message a user (opens chat)
+    const handleMessageUser = (targetUser: UserWithSkills) => {
+        if (!user) {
+            Alert.alert('Error', 'Please login first');
+            return;
+        }
+
+        const conversationId = generateConversationId(user.uid, targetUser.uid);
         router.push({
-            pathname: '/(app)/payment',
+            pathname: '/(app)/chat-room',
             params: {
-                skillName: skill.skillName,
-                skillPrice: skill.price.toString(),
-                skillDuration: skill.duration,
-                instructor: skill.userName,
-                instructorEmail: skill.userEmail,
+                conversationId,
+                otherUserId: targetUser.uid,
+                otherUserName: targetUser.displayName,
             },
         });
     };
 
-    // Open modal to add a new skill
-    const handleAddSkill = () => {
-        setEditingSkill(null);
-        setFormData({
-            skillName: '',
-            category: '',
-            description: '',
-            price: '',
-            duration: '1 hour',
-            isAvailable: true,
-        });
-        setShowModal(true);
+    const onRefresh = () => {
+        setRefreshing(true);
+        loadUsers();
+        loadSentRequests();
+        loadExistingFriends();
     };
 
-    // Open modal to edit an existing skill
-    const handleEditSkill = (skill: Skill) => {
-        setEditingSkill(skill);
-        setFormData({
-            skillName: skill.skillName,
-            category: skill.category,
-            description: skill.description,
-            price: skill.price.toString(),
-            duration: skill.duration,
-            isAvailable: skill.isAvailable,
-        });
-        setShowModal(true);
-    };
+    // Render user card
+    const renderUserCard = (targetUser: UserWithSkills) => {
+        const isFriend = existingFriends.includes(targetUser.uid);
+        const requestSent = sentRequests.includes(targetUser.uid);
+        const isOnline = targetUser.status === 'online';
 
-    // Save skill (either add new or update existing)
-    const handleSaveSkill = async () => {
-        // Validate required fields
-        if (!formData.skillName || !formData.category || !formData.price) {
-            Alert.alert('Validation Error', 'Please fill in all required fields');
-            return;
-        }
+        return (
+            <View key={targetUser.uid} style={styles.card}>
+                {/* User header */}
+                <View style={styles.userHeader}>
+                    <View style={styles.avatarContainer}>
+                        <View style={styles.avatar}>
+                            <Text style={styles.avatarText}>
+                                {targetUser.displayName.charAt(0).toUpperCase()}
+                            </Text>
+                        </View>
+                        <View
+                            style={[
+                                styles.statusBadge,
+                                { backgroundColor: isOnline ? '#4CAF50' : '#ccc' },
+                            ]}
+                        />
+                    </View>
+                    <View style={styles.userInfo}>
+                        <Text style={styles.userName}>{targetUser.displayName}</Text>
+                        {targetUser.location && (
+                            <Text style={styles.location}>📍 {targetUser.location}</Text>
+                        )}
+                        {targetUser.bio && (
+                            <Text style={styles.bio} numberOfLines={2}>
+                                {targetUser.bio}
+                            </Text>
+                        )}
+                    </View>
+                </View>
 
-        // Validate price is a valid number
-        const price = parseFloat(formData.price);
-        if (isNaN(price) || price < 0) {
-            Alert.alert('Validation Error', 'Please enter a valid price');
-            return;
-        }
+                {/* Skills they can teach */}
+                {targetUser.skillsTeaching.length > 0 && (
+                    <View style={styles.skillsSection}>
+                        <Text style={styles.skillsLabel}>🎓 Can teach:</Text>
+                        <View style={styles.skillsContainer}>
+                            {targetUser.skillsTeaching.slice(0, 4).map((skill, index) => (
+                                <View key={index} style={[styles.skillChip, styles.teachingChip]}>
+                                    <Text style={styles.skillChipText}>{skill}</Text>
+                                </View>
+                            ))}
+                            {targetUser.skillsTeaching.length > 4 && (
+                                <Text style={styles.moreSkills}>
+                                    +{targetUser.skillsTeaching.length - 4} more
+                                </Text>
+                            )}
+                        </View>
+                    </View>
+                )}
 
-        try {
-            const skillData = {
-                skillName: formData.skillName,
-                category: formData.category,
-                description: formData.description,
-                price: price,
-                duration: formData.duration,
-                isAvailable: formData.isAvailable,
-                updatedAt: new Date().toISOString(),
-            };
+                {/* Skills they want to learn */}
+                {targetUser.skillsLearning.length > 0 && (
+                    <View style={styles.skillsSection}>
+                        <Text style={styles.skillsLabel}>📚 Wants to learn:</Text>
+                        <View style={styles.skillsContainer}>
+                            {targetUser.skillsLearning.slice(0, 4).map((skill, index) => (
+                                <View key={index} style={[styles.skillChip, styles.learningChip]}>
+                                    <Text style={styles.skillChipText}>{skill}</Text>
+                                </View>
+                            ))}
+                            {targetUser.skillsLearning.length > 4 && (
+                                <Text style={styles.moreSkills}>
+                                    +{targetUser.skillsLearning.length - 4} more
+                                </Text>
+                            )}
+                        </View>
+                    </View>
+                )}
 
-            if (editingSkill) {
-                // Update existing skill
-                await updateDoc(doc(db, 'skills', editingSkill.id), skillData);
-                Alert.alert('Success', 'Skill updated successfully!');
-            } else {
-                // Create new skill
-                await addDoc(collection(db, 'skills'), {
-                    ...skillData,
-                    userId: user?.uid,
-                    userName: user?.displayName || user?.email,
-                    userEmail: user?.email,
-                    createdAt: new Date().toISOString(),
-                });
-                Alert.alert('Success', 'Skill added successfully!');
-            }
-
-            setShowModal(false);
-            loadSkills();
-        } catch (error: any) {
-            console.error('Error saving skill:', error);
-            Alert.alert('Error', 'Could not save skill. Please try again.');
-        }
-    };
-
-    // Delete a skill with confirmation
-    const handleDeleteSkill = (skillId: string, skillName: string) => {
-        Alert.alert(
-            'Delete Skill',
-            `Are you sure you want to delete "${skillName}"? This action cannot be undone.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await deleteDoc(doc(db, 'skills', skillId));
-                            Alert.alert('Deleted', 'Skill removed successfully');
-                            loadSkills();
-                        } catch (error: any) {
-                            console.error('Error deleting skill:', error);
-                            Alert.alert('Error', 'Could not delete skill. Please try again.');
-                        }
-                    },
-                },
-            ]
+                {/* Action buttons */}
+                <View style={styles.actionContainer}>
+                    {isFriend ? (
+                        <TouchableOpacity
+                            style={styles.messageButton}
+                            onPress={() => handleMessageUser(targetUser)}
+                        >
+                            <Text style={styles.messageButtonText}>💬 Message</Text>
+                        </TouchableOpacity>
+                    ) : requestSent ? (
+                        <View style={styles.pendingBadge}>
+                            <Text style={styles.pendingBadgeText}>⏳ Request Sent</Text>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            style={styles.addFriendButton}
+                            onPress={() => openRequestModal(targetUser)}
+                        >
+                            <Text style={styles.addFriendButtonText}>+ Connect</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
         );
     };
 
-    // Pull-to-refresh handler
-    const onRefresh = () => {
-        setRefreshing(true);
-        loadSkills();
-    };
-
-    // Get color for each category badge
-    const getCategoryColor = (category: string) => {
-        const colors: Record<string, string> = {
-            Music: '#FF6B6B',
-            Technology: '#4ECDC4',
-            Language: '#45B7D1',
-            Fitness: '#FFA07A',
-            Arts: '#DDA0DD',
-            Business: '#87CEEB',
-            Other: '#A9A9A9',
-        };
-        return colors[category] || '#999';
-    };
-
-    // Format date string nicely
-    const formatDate = (dateString: string) => {
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-            });
-        } catch {
-            return dateString;
-        }
-    };
-
-    // Render the Browse tab (marketplace of skills)
-    const renderBrowseTab = () => (
-        <>
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-                <TextInput
-                    style={styles.searchBox}
-                    placeholder="Search skills or instructors..."
-                    value={searchText}
-                    onChangeText={handleSearch}
-                    placeholderTextColor="#999"
-                />
-            </View>
-
-            {/* Category Filter - horizontal scrollable pills */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScroll}
-                contentContainerStyle={styles.categoryContainer}
-            >
-                {CATEGORIES.map((cat) => (
-                    <TouchableOpacity
-                        key={cat}
-                        style={[
-                            styles.categoryChip,
-                            selectedCategory === cat && styles.categoryChipActive,
-                        ]}
-                        onPress={() => handleCategoryFilter(cat)}
-                    >
-                        <Text
-                            style={[
-                                styles.categoryChipText,
-                                selectedCategory === cat && styles.categoryChipTextActive,
-                            ]}
-                        >
-                            {cat}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
-
-            {/* Skills Grid - shows filtered results */}
-            {filteredSkills.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyIcon}>🔍</Text>
-                    <Text style={styles.emptyText}>No skills found</Text>
-                    <Text style={styles.emptySubtext}>
-                        Try adjusting your search or filters
-                    </Text>
-                </View>
-            ) : (
-                <View style={styles.skillsGrid}>
-                    {filteredSkills.map((skill) => (
-                        <View key={skill.id} style={styles.skillCard}>
-                            {/* Category badge with dynamic color */}
-                            <View
-                                style={[
-                                    styles.categoryBadge,
-                                    { backgroundColor: getCategoryColor(skill.category) + '20' },
-                                ]}
-                            >
-                                <Text
-                                    style={[
-                                        styles.categoryBadgeText,
-                                        { color: getCategoryColor(skill.category) },
-                                    ]}
-                                >
-                                    {skill.category}
-                                </Text>
-                            </View>
-
-                            <Text style={styles.skillCardTitle}>{skill.skillName}</Text>
-                            <Text style={styles.instructorName}>by {skill.userName}</Text>
-
-                            <Text style={styles.skillDescription} numberOfLines={2}>
-                                {skill.description || 'No description provided'}
-                            </Text>
-
-                            {/* Price and duration info */}
-                            <View style={styles.skillCardFooter}>
-                                <View>
-                                    <Text style={styles.priceLabel}>Price</Text>
-                                    <Text style={styles.priceValue}>${skill.price.toFixed(2)}</Text>
-                                </View>
-                                <View>
-                                    <Text style={styles.durationLabel}>Duration</Text>
-                                    <Text style={styles.durationValue}>{skill.duration}</Text>
-                                </View>
-                            </View>
-
-                            {/* Book button */}
-                            <TouchableOpacity
-                                style={styles.bookButton}
-                                onPress={() => handleBookSkill(skill)}
-                            >
-                                <Text style={styles.bookButtonText}>Book Now</Text>
-                            </TouchableOpacity>
-                        </View>
-                    ))}
-                </View>
-            )}
-        </>
-    );
-
-    // Render the Manage tab (your own skills)
-    const renderManageTab = () => (
-        <>
-            <View style={styles.manageHeader}>
-                <Text style={styles.manageTitle}>
-                    {mySkills.length} {mySkills.length === 1 ? 'skill' : 'skills'} listed
-                </Text>
-                <TouchableOpacity style={styles.addButton} onPress={handleAddSkill}>
-                    <Text style={styles.addButtonText}>+ Add Skill</Text>
-                </TouchableOpacity>
-            </View>
-
-            {mySkills.length === 0 ? (
-                // Empty state when user hasn't added any skills yet
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyIcon}>📚</Text>
-                    <Text style={styles.emptyText}>No skills yet</Text>
-                    <Text style={styles.emptySubtext}>
-                        Add your first skill to start teaching others
-                    </Text>
-                    <TouchableOpacity style={styles.emptyButton} onPress={handleAddSkill}>
-                        <Text style={styles.emptyButtonText}>Add Your First Skill</Text>
-                    </TouchableOpacity>
-                </View>
-            ) : (
-                // List of user's skills with edit/delete options
-                <View style={styles.skillsList}>
-                    {mySkills.map((skill) => (
-                        <View key={skill.id} style={styles.mySkillCard}>
-                            <View style={styles.mySkillHeader}>
-                                <View style={styles.mySkillInfo}>
-                                    <View
-                                        style={[
-                                            styles.categoryBadge,
-                                            { backgroundColor: getCategoryColor(skill.category) + '20' },
-                                        ]}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.categoryBadgeText,
-                                                { color: getCategoryColor(skill.category) },
-                                            ]}
-                                        >
-                                            {skill.category}
-                                        </Text>
-                                    </View>
-                                    <Text style={styles.mySkillName}>{skill.skillName}</Text>
-                                    <Text style={styles.mySkillDescription} numberOfLines={2}>
-                                        {skill.description || 'No description provided'}
-                                    </Text>
-                                </View>
-                                {/* Green dot if skill is active/available */}
-                                {skill.isAvailable && <Text style={styles.activeIndicator}>🟢</Text>}
-                            </View>
-
-                            {/* Skill details section */}
-                            <View style={styles.mySkillDetails}>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>💵 Price:</Text>
-                                    <Text style={styles.priceValue}>${skill.price.toFixed(2)}</Text>
-                                </View>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>⏱️ Duration:</Text>
-                                    <Text style={styles.detailValue}>{skill.duration}</Text>
-                                </View>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>📅 Added:</Text>
-                                    <Text style={styles.detailValue}>{formatDate(skill.createdAt)}</Text>
-                                </View>
-                            </View>
-
-                            {/* Edit and Delete buttons */}
-                            <View style={styles.actionButtons}>
-                                <TouchableOpacity
-                                    style={[styles.actionButton, styles.editButton]}
-                                    onPress={() => handleEditSkill(skill)}
-                                >
-                                    <Text style={styles.editButtonText}>✏️ Edit</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.actionButton, styles.deleteButton]}
-                                    onPress={() => handleDeleteSkill(skill.id, skill.skillName)}
-                                >
-                                    <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    ))}
-                </View>
-            )}
-        </>
-    );
-
-    // Show loading spinner while fetching
     if (loading) {
         return (
-            <SafeAreaView style={styles.container} edges={['bottom']}>
+            <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color="#007AFF" />
-                    <Text style={styles.loadingText}>Loading skills...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -532,30 +364,6 @@ export default function SkillsScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['bottom']}>
-            {/* Header with Tabs */}
-            <View style={styles.header}>
-                <Text style={styles.title}>Skills</Text>
-                <View style={styles.tabContainer}>
-                    <TouchableOpacity
-                        style={[styles.tab, activeTab === 'browse' && styles.tabActive]}
-                        onPress={() => setActiveTab('browse')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'browse' && styles.tabTextActive]}>
-                            Browse
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.tab, activeTab === 'manage' && styles.tabActive]}
-                        onPress={() => setActiveTab('manage')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'manage' && styles.tabTextActive]}>
-                            My Skills
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            {/* Main content area - switches based on active tab */}
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
@@ -563,146 +371,142 @@ export default function SkillsScreen() {
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
                 }
             >
-                {activeTab === 'browse' ? renderBrowseTab() : renderManageTab()}
+                {/* Header */}
+                <View style={styles.header}>
+                    <Text style={styles.title}>Find Skills</Text>
+                    <Text style={styles.subtitle}>Connect with people to learn & teach</Text>
+                </View>
+
+                {/* Search bar */}
+                <View style={styles.searchContainer}>
+                    <TextInput
+                        style={styles.searchBox}
+                        placeholder="Search by name or skills..."
+                        value={searchText}
+                        onChangeText={handleSearch}
+                        placeholderTextColor="#999"
+                    />
+                </View>
+
+                {/* Skill filter chips */}
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.skillFilterScroll}
+                    contentContainerStyle={styles.skillFilterContainer}
+                >
+                    {allSkills.map((skill) => (
+                        <TouchableOpacity
+                            key={skill}
+                            style={[
+                                styles.skillFilterChip,
+                                selectedSkill === skill && styles.skillFilterChipActive,
+                            ]}
+                            onPress={() => handleSkillFilter(skill)}
+                        >
+                            <Text
+                                style={[
+                                    styles.skillFilterChipText,
+                                    selectedSkill === skill && styles.skillFilterChipTextActive,
+                                ]}
+                            >
+                                {skill}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+
+                {/* Results count */}
+                <Text style={styles.resultCount}>
+                    {filteredUsers.length} {filteredUsers.length === 1 ? 'person' : 'people'} found
+                </Text>
+
+                {/* User list */}
+                {filteredUsers.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyIcon}>🔍</Text>
+                        <Text style={styles.emptyText}>
+                            {searchText || selectedSkill !== 'All' ? 'No users found' : 'No users with skills yet'}
+                        </Text>
+                    </View>
+                ) : (
+                    filteredUsers.map(renderUserCard)
+                )}
+
                 <View style={styles.bottomSpacer} />
             </ScrollView>
 
-            {/* Add/Edit Modal - full screen form for creating or editing skills */}
-            <Modal visible={showModal} animationType="slide" onRequestClose={() => setShowModal(false)}>
-                <SafeAreaView style={styles.modalContainer}>
-                    <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+            {/* Friend request modal */}
+            <Modal visible={showRequestModal} animationType="slide" transparent>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <TouchableOpacity onPress={() => setShowModal(false)}>
+                            <Text style={styles.modalTitle}>Connect & Learn</Text>
+                            <TouchableOpacity onPress={() => setShowRequestModal(false)}>
                                 <Text style={styles.modalCloseText}>✕</Text>
                             </TouchableOpacity>
-                            <Text style={styles.modalTitle}>
-                                {editingSkill ? 'Edit Skill' : 'Add New Skill'}
-                            </Text>
-                            <View style={{ width: 40 }} />
                         </View>
 
-                        {/* Skill Name Input */}
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Skill Name *</Text>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="e.g., Guitar Lessons"
-                                value={formData.skillName}
-                                onChangeText={(text) => setFormData({ ...formData, skillName: text })}
-                                placeholderTextColor="#ccc"
-                            />
-                        </View>
-
-                        {/* Category Selection */}
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Category *</Text>
-                            <View style={styles.categoryModalContainer}>
-                                {CATEGORIES.filter(c => c !== 'All').map((cat) => (
-                                    <TouchableOpacity
-                                        key={cat}
-                                        style={[
-                                            styles.categoryButton,
-                                            formData.category === cat && styles.categoryButtonActive,
-                                        ]}
-                                        onPress={() => setFormData({ ...formData, category: cat })}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.categoryButtonText,
-                                                formData.category === cat && styles.categoryButtonTextActive,
-                                            ]}
-                                        >
-                                            {cat}
+                        {selectedUser && (
+                            <ScrollView style={styles.modalBody}>
+                                <View style={styles.modalUserInfo}>
+                                    <View style={styles.modalAvatar}>
+                                        <Text style={styles.modalAvatarText}>
+                                            {selectedUser.displayName.charAt(0).toUpperCase()}
                                         </Text>
+                                    </View>
+                                    <View>
+                                        <Text style={styles.modalUserName}>
+                                            {selectedUser.displayName}
+                                        </Text>
+                                        <Text style={styles.modalUserEmail}>
+                                            {selectedUser.email}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <View style={styles.messageSection}>
+                                    <Text style={styles.messageLabel}>
+                                        Introduce yourself (optional)
+                                    </Text>
+                                    <TextInput
+                                        style={styles.messageInput}
+                                        placeholder="Hi! I'd love to learn from you and share my skills..."
+                                        value={requestMessage}
+                                        onChangeText={setRequestMessage}
+                                        multiline
+                                        numberOfLines={4}
+                                        placeholderTextColor="#999"
+                                    />
+                                </View>
+
+                                <View style={styles.modalButtons}>
+                                    <TouchableOpacity
+                                        style={[styles.modalButton, styles.cancelButton]}
+                                        onPress={() => setShowRequestModal(false)}
+                                    >
+                                        <Text style={styles.cancelButtonText}>Cancel</Text>
                                     </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
-
-                        {/* Description Input */}
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Description</Text>
-                            <TextInput
-                                style={[styles.input, styles.textArea]}
-                                placeholder="Describe your skill and what students will learn..."
-                                value={formData.description}
-                                onChangeText={(text) => setFormData({ ...formData, description: text })}
-                                multiline
-                                numberOfLines={4}
-                                placeholderTextColor="#ccc"
-                            />
-                        </View>
-
-                        {/* Price and Duration Row */}
-                        <View style={styles.formRow}>
-                            <View style={[styles.formGroup, { flex: 1, marginRight: 12 }]}>
-                                <Text style={styles.formLabel}>Price ($) *</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="50"
-                                    value={formData.price}
-                                    onChangeText={(text) => setFormData({ ...formData, price: text })}
-                                    keyboardType="decimal-pad"
-                                    placeholderTextColor="#ccc"
-                                />
-                            </View>
-
-                            <View style={[styles.formGroup, { flex: 1 }]}>
-                                <Text style={styles.formLabel}>Duration</Text>
-                                <TouchableOpacity
-                                    style={styles.durationSelect}
-                                    onPress={() => {
-                                        // Show duration picker using Alert
-                                        Alert.alert(
-                                            'Select Duration',
-                                            '',
-                                            DURATIONS.map((d) => ({
-                                                text: d,
-                                                onPress: () => setFormData({ ...formData, duration: d }),
-                                            }))
-                                        );
-                                    }}
-                                >
-                                    <Text style={styles.durationSelectText}>{formData.duration}</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-
-                        {/* Availability Toggle */}
-                        <View style={styles.formGroup}>
-                            <View style={styles.switchRow}>
-                                <Text style={styles.formLabel}>Make Available</Text>
-                                <Switch
-                                    value={formData.isAvailable}
-                                    onValueChange={(value) => setFormData({ ...formData, isAvailable: value })}
-                                    trackColor={{ false: '#ccc', true: '#81C784' }}
-                                    thumbColor={formData.isAvailable ? '#4CAF50' : '#999'}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Save and Cancel Buttons */}
-                        <View style={styles.modalButtonContainer}>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.cancelButton]}
-                                onPress={() => setShowModal(false)}
-                            >
-                                <Text style={styles.cancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.saveButton]}
-                                onPress={handleSaveSkill}
-                            >
-                                <Text style={styles.saveButtonText}>
-                                    {editingSkill ? 'Update Skill' : 'Add Skill'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.modalSpacer} />
-                    </ScrollView>
-                </SafeAreaView>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.modalButton,
+                                            styles.sendButton,
+                                            sending && styles.disabledButton,
+                                        ]}
+                                        onPress={sendFriendRequest}
+                                        disabled={sending}
+                                    >
+                                        {sending ? (
+                                            <ActivityIndicator color="#fff" />
+                                        ) : (
+                                            <Text style={styles.sendButtonText}>Send Request</Text>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        )}
+                    </View>
+                </View>
             </Modal>
         </SafeAreaView>
     );
@@ -718,16 +522,13 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
+    content: {
+        flex: 1,
     },
     header: {
-        backgroundColor: '#fff',
-        paddingHorizontal: 20,
+        padding: 20,
         paddingTop: 10,
-        paddingBottom: 16,
+        backgroundColor: '#fff',
         borderBottomWidth: 1,
         borderBottomColor: '#e0e0e0',
     },
@@ -735,37 +536,12 @@ const styles = StyleSheet.create({
         fontSize: 28,
         fontWeight: 'bold',
         color: '#333',
-        marginBottom: 16,
+        marginBottom: 4,
     },
-    // Tab switcher styling
-    tabContainer: {
-        flexDirection: 'row',
-        backgroundColor: '#f0f0f0',
-        borderRadius: 8,
-        padding: 4,
-    },
-    tab: {
-        flex: 1,
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 6,
-        alignItems: 'center',
-    },
-    tabActive: {
-        backgroundColor: '#007AFF',
-    },
-    tabText: {
-        fontSize: 15,
-        fontWeight: '600',
+    subtitle: {
+        fontSize: 16,
         color: '#666',
     },
-    tabTextActive: {
-        color: '#fff',
-    },
-    content: {
-        flex: 1,
-    },
-    // Search bar styling
     searchContainer: {
         padding: 20,
         paddingBottom: 12,
@@ -779,15 +555,14 @@ const styles = StyleSheet.create({
         borderColor: '#ddd',
         color: '#333',
     },
-    // Category filter chips
-    categoryScroll: {
+    skillFilterScroll: {
         paddingHorizontal: 20,
-        marginBottom: 20,
+        marginBottom: 12,
     },
-    categoryContainer: {
+    skillFilterContainer: {
         gap: 8,
     },
-    categoryChip: {
+    skillFilterChip: {
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
@@ -795,350 +570,264 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#ddd',
     },
-    categoryChipActive: {
+    skillFilterChipActive: {
         backgroundColor: '#007AFF',
         borderColor: '#007AFF',
     },
-    categoryChipText: {
+    skillFilterChipText: {
         fontSize: 14,
         fontWeight: '500',
         color: '#666',
     },
-    categoryChipTextActive: {
+    skillFilterChipTextActive: {
         color: '#fff',
     },
-    // Skills grid for browse view
-    skillsGrid: {
+    resultCount: {
+        fontSize: 14,
+        color: '#666',
         paddingHorizontal: 20,
+        marginBottom: 12,
     },
-    skillCard: {
+    card: {
         backgroundColor: '#fff',
-        borderRadius: 16,
+        borderRadius: 12,
         padding: 16,
+        marginHorizontal: 20,
         marginBottom: 16,
+        elevation: 2,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 3,
+        shadowRadius: 4,
     },
-    categoryBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
-        marginBottom: 8,
-    },
-    categoryBadgeText: {
-        fontSize: 11,
-        fontWeight: '600',
-    },
-    skillCardTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 4,
-    },
-    instructorName: {
-        fontSize: 14,
-        color: '#666',
+    userHeader: {
+        flexDirection: 'row',
         marginBottom: 12,
     },
-    skillDescription: {
-        fontSize: 14,
-        color: '#999',
-        lineHeight: 20,
-        marginBottom: 16,
+    avatarContainer: {
+        position: 'relative',
+        marginRight: 12,
     },
-    skillCardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 16,
-        paddingTop: 16,
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+    avatar: {
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: '#007AFF',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    priceLabel: {
-        fontSize: 12,
-        color: '#999',
-        marginBottom: 4,
-    },
-    priceValue: {
+    avatarText: {
         fontSize: 24,
         fontWeight: 'bold',
-        color: '#007AFF',
-    },
-    durationLabel: {
-        fontSize: 12,
-        color: '#999',
-        marginBottom: 4,
-        textAlign: 'right',
-    },
-    durationValue: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#333',
-        textAlign: 'right',
-    },
-    bookButton: {
-        backgroundColor: '#007AFF',
-        paddingVertical: 14,
-        borderRadius: 12,
-        alignItems: 'center',
-    },
-    bookButtonText: {
         color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
     },
-    // Manage tab styling
-    manageHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 20,
-        paddingBottom: 16,
+    statusBadge: {
+        position: 'absolute',
+        bottom: 2,
+        right: 2,
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        borderWidth: 2,
+        borderColor: '#fff',
     },
-    manageTitle: {
-        fontSize: 16,
-        color: '#666',
-    },
-    addButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-    },
-    addButtonText: {
-        color: '#fff',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    skillsList: {
-        paddingHorizontal: 20,
-    },
-    // Your skills card styling
-    mySkillCard: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-        borderLeftWidth: 4,
-        borderLeftColor: '#007AFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    mySkillHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 12,
-    },
-    mySkillInfo: {
+    userInfo: {
         flex: 1,
     },
-    mySkillName: {
+    userName: {
         fontSize: 18,
         fontWeight: '600',
         color: '#333',
         marginBottom: 4,
     },
-    mySkillDescription: {
-        fontSize: 13,
-        color: '#999',
-        lineHeight: 18,
-    },
-    activeIndicator: {
-        fontSize: 20,
-    },
-    mySkillDetails: {
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
-        paddingTop: 12,
-        marginBottom: 12,
-    },
-    detailRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-    },
-    detailLabel: {
+    location: {
         fontSize: 13,
         color: '#666',
+        marginBottom: 4,
     },
-    detailValue: {
+    bio: {
+        fontSize: 14,
+        color: '#666',
+        lineHeight: 18,
+    },
+    skillsSection: {
+        marginTop: 12,
+    },
+    skillsLabel: {
         fontSize: 13,
-        color: '#333',
-        fontWeight: '500',
+        fontWeight: '600',
+        color: '#666',
+        marginBottom: 8,
     },
-    actionButtons: {
+    skillsContainer: {
         flexDirection: 'row',
-        gap: 8,
+        flexWrap: 'wrap',
+        gap: 6,
     },
-    actionButton: {
-        flex: 1,
-        paddingVertical: 10,
+    skillChip: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12,
+        marginRight: 6,
+        marginBottom: 6,
+    },
+    teachingChip: {
+        backgroundColor: '#E3F2FD',
+    },
+    learningChip: {
+        backgroundColor: '#FFF3E0',
+    },
+    skillChipText: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#333',
+    },
+    moreSkills: {
+        fontSize: 12,
+        color: '#999',
+        alignSelf: 'center',
+    },
+    actionContainer: {
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#f0f0f0',
+    },
+    addFriendButton: {
+        backgroundColor: '#007AFF',
+        paddingVertical: 12,
         borderRadius: 8,
         alignItems: 'center',
     },
-    editButton: {
-        backgroundColor: '#E3F2FD',
-    },
-    editButtonText: {
-        color: '#007AFF',
+    addFriendButtonText: {
+        color: '#fff',
         fontWeight: '600',
-        fontSize: 14,
+        fontSize: 15,
     },
-    deleteButton: {
-        backgroundColor: '#FFEBEE',
+    messageButton: {
+        backgroundColor: '#4CAF50',
+        paddingVertical: 12,
+        borderRadius: 8,
+        alignItems: 'center',
     },
-    deleteButtonText: {
-        color: '#F44336',
+    messageButtonText: {
+        color: '#fff',
         fontWeight: '600',
-        fontSize: 14,
+        fontSize: 15,
     },
-    // Empty state styling
+    pendingBadge: {
+        backgroundColor: '#FFF3E0',
+        paddingVertical: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    pendingBadgeText: {
+        color: '#FF9800',
+        fontWeight: '600',
+        fontSize: 15,
+    },
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 60,
-        paddingHorizontal: 40,
     },
     emptyIcon: {
         fontSize: 64,
         marginBottom: 16,
     },
     emptyText: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 8,
-        textAlign: 'center',
-    },
-    emptySubtext: {
         fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 24,
+        color: '#999',
     },
-    emptyButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
+    bottomSpacer: {
+        height: 40,
     },
-    emptyButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    // Modal/Form styling
-    modalContainer: {
+    // Modal styles
+    modalOverlay: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
     },
     modalContent: {
-        flex: 1,
-        padding: 20,
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        maxHeight: '70%',
     },
     modalHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 24,
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e0e0e0',
     },
     modalTitle: {
-        fontSize: 24,
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#333',
     },
     modalCloseText: {
-        fontSize: 28,
+        fontSize: 24,
         color: '#666',
         fontWeight: 'bold',
     },
-    formGroup: {
+    modalBody: {
+        padding: 20,
+    },
+    modalUserInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
         marginBottom: 20,
     },
-    formLabel: {
+    modalAvatar: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: '#007AFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    modalAvatarText: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    modalUserName: {
         fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 2,
+    },
+    modalUserEmail: {
+        fontSize: 14,
+        color: '#666',
+    },
+    messageSection: {
+        marginBottom: 20,
+    },
+    messageLabel: {
+        fontSize: 14,
         fontWeight: '600',
         color: '#333',
         marginBottom: 8,
     },
-    input: {
-        backgroundColor: '#fff',
+    messageInput: {
+        backgroundColor: '#f5f5f5',
         borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        fontSize: 16,
-        borderWidth: 1,
-        borderColor: '#ddd',
-        color: '#333',
-    },
-    textArea: {
-        textAlignVertical: 'top',
-        paddingTop: 12,
-        minHeight: 100,
-    },
-    formRow: {
-        flexDirection: 'row',
-    },
-    categoryModalContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    categoryButton: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 6,
-        backgroundColor: '#f0f0f0',
-        borderWidth: 1,
-        borderColor: '#ddd',
-    },
-    categoryButtonActive: {
-        backgroundColor: '#007AFF',
-        borderColor: '#007AFF',
-    },
-    categoryButtonText: {
+        padding: 12,
         fontSize: 14,
-        color: '#666',
-        fontWeight: '500',
-    },
-    categoryButtonTextActive: {
-        color: '#fff',
-    },
-    durationSelect: {
-        backgroundColor: '#fff',
-        borderRadius: 8,
         borderWidth: 1,
         borderColor: '#ddd',
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-    },
-    durationSelectText: {
-        fontSize: 16,
         color: '#333',
+        textAlignVertical: 'top',
+        minHeight: 80,
     },
-    switchRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#ddd',
-    },
-    modalButtonContainer: {
+    modalButtons: {
         flexDirection: 'row',
         gap: 12,
-        marginBottom: 24,
+        marginBottom: 20,
     },
     modalButton: {
         flex: 1,
@@ -1147,27 +836,22 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     cancelButton: {
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#007AFF',
+        backgroundColor: '#f0f0f0',
     },
-    cancelButtonText: {
-        color: '#007AFF',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    saveButton: {
+    sendButton: {
         backgroundColor: '#007AFF',
     },
-    saveButtonText: {
-        color: '#fff',
-        fontSize: 16,
+    disabledButton: {
+        opacity: 0.6,
+    },
+    cancelButtonText: {
+        color: '#666',
         fontWeight: '600',
+        fontSize: 16,
     },
-    modalSpacer: {
-        height: 20,
-    },
-    bottomSpacer: {
-        height: 20,
+    sendButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 16,
     },
 });

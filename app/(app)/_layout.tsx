@@ -33,6 +33,15 @@ export default function TabLayout() {
                 }}
             />
 
+            <Tabs.Screen
+                name="maps"
+                options={{
+                    title: 'Maps',
+                    tabBarLabel: 'Maps',
+                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🗺️</Text>,
+                }}
+            />
+
             {/* chat list - all conversations */}
             <Tabs.Screen
                 name="chat-list"
