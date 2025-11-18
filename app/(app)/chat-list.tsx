@@ -1,26 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    TouchableOpacity,
+    collection,
+    onSnapshot,
+    orderBy,
+    query,
+    where
+} from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
     ActivityIndicator,
+    FlatList,
     RefreshControl,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import {
-    collection,
-    query,
-    where,
-    onSnapshot,
-    orderBy,
-    doc,
-    getDoc,
-} from 'firebase/firestore';
-import { useRouter } from 'expo-router';
 
 // base conversation structure from firebase
 interface Conversation {
@@ -206,7 +204,7 @@ export default function ChatListScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             {/* header with title and new chat button */}
             <View style={styles.header}>
                 <Text style={styles.title}>Messages</Text>

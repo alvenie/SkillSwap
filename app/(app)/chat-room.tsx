@@ -1,36 +1,36 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useStripe } from '@stripe/stripe-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    TextInput,
-    TouchableOpacity,
-    KeyboardAvoidingView,
-    Platform,
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    onSnapshot,
+    orderBy,
+    query,
+    setDoc,
+    Timestamp,
+    updateDoc,
+} from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
+import {
     ActivityIndicator,
     Alert,
+    FlatList,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import {
-    collection,
-    query,
-    orderBy,
-    onSnapshot,
-    addDoc,
-    doc,
-    getDoc,
-    setDoc,
-    updateDoc,
-    Timestamp,
-} from 'firebase/firestore';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { generateConversationId } from '../../utils/conversationUtils';
-import { useStripe } from '@stripe/stripe-react-native';
 import { paymentService } from '../../services/apiService';
+import { generateConversationId } from '../../utils/conversationUtils';
 
 // Message types
 interface BaseMessage {
@@ -708,7 +708,7 @@ export default function ChatRoomScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             <KeyboardAvoidingView
                 style={{ flex: 1 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
