@@ -39,6 +39,11 @@ interface BaseMessage {
     senderName: string;
     timestamp: any;
     read: boolean;
+    //added for meetup requests
+    type?: 'text' | 'meetup';
+    meetupData?: {
+        accepted?: boolean;
+    };
 }
 
 interface TextMessage extends BaseMessage {
@@ -767,6 +772,15 @@ export default function ChatRoomScreen() {
                             <Text style={styles.sendButtonText}>Send</Text>
                         )}
                     </TouchableOpacity>
+
+                    {/* Meetup button */}
+                    <TouchableOpacity
+                        style={[styles.sendButton, styles.meetupButton, !conversationReady && styles.sendButtonDisabled]}
+                        //onPress={handleSendMeetupRequest}
+                        disabled={!conversationReady}
+                    >
+                        <Text style={styles.sendButtonText}>Meetup</Text>
+                    </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
 
@@ -1079,6 +1093,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minWidth: 70,
     },
+
+    meetupButton: {
+        backgroundColor: '#34C759', // green for meetup
+        marginLeft: 8,
+    },
+
     sendButtonDisabled: {
         backgroundColor: '#ccc',
     },
