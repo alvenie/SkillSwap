@@ -137,15 +137,13 @@ export default function ChatRoomScreen() {
     useEffect(() => {
         if (!conversationReady || !conversationId || !user) return;
 
-        console.log('📡 Setting up message listener...');
+        console.log('Setting up message listener...');
 
         // listen to messages in this conversation
         const messagesRef = collection(db, 'conversations', conversationId, 'messages');
         const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
-        const unsubscribe = onSnapshot(
-            q,
-            (snapshot) => {
+        const unsubscribe = onSnapshot(q, (snapshot) => {
                 const loadedMessages: Message[] = [];
                 snapshot.forEach((doc) => {
                     loadedMessages.push({
@@ -154,7 +152,7 @@ export default function ChatRoomScreen() {
                     } as Message);
                 });
 
-                console.log('📨 Loaded', loadedMessages.length, 'messages');
+                console.log('Loaded', loadedMessages.length, 'messages');
                 setMessages(loadedMessages);
                 setLoading(false);
 

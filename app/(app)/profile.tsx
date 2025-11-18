@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
     ActivityIndicator,
+    Alert,
     RefreshControl,
-    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, addDoc, increment } from 'firebase/firestore';
-import { useRouter } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
 
 // TypeScript interfaces to define the shape of our data
@@ -156,7 +155,7 @@ export default function ProfileScreen() {
         }
     };
 
-    // This is the big one - handles accepting a friend request
+    // Handles accepting a friend request
     // Creates bidirectional friendship and updates counts
     const handleAcceptRequest = async (requestId: string, fromUserId: string, fromUserName: string, fromUserEmail: string) => {
         if (!user) return;
@@ -333,7 +332,7 @@ export default function ProfileScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
@@ -346,9 +345,9 @@ export default function ProfileScreen() {
                     <Text style={styles.headerTitle}>My Profile</Text>
                     <TouchableOpacity
                         style={styles.editButton}
-                        onPress={() => router.push('/(app)/edit-profile')}
+                        onPress={() => router.push('/(app)/settings')}
                     >
-                        <Text style={styles.editButtonText}>✏️ Edit</Text>
+                        <Text style={styles.editButtonText}>Settings</Text>
                     </TouchableOpacity>
                 </View>
 

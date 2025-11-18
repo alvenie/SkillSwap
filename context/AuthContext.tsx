@@ -1,4 +1,4 @@
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { signOut as firebaseSignOut, onAuthStateChanged, User } from 'firebase/auth';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { auth } from '../firebaseConfig'; // Import auth object
 
@@ -6,6 +6,7 @@ import { auth } from '../firebaseConfig'; // Import auth object
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  signOut: () => Promise<void>; 
 }
 
 // Create the context
@@ -27,8 +28,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
+  // Wrapper function
+  const signOut = async () => {
+    try {
+      await firebaseSignOut(auth);
+      // The onAuthStateChanged listener above will automatically handle setting user to null
+    } catch (error){
+      console.error("Error signing out: ", error);
+      throw error;
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, isLoading }}>
+    <AuthContext.Provider value={{ user, isLoading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
