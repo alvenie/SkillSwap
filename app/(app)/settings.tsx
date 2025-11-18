@@ -14,16 +14,23 @@ import {
     Text,
     TouchableOpacity,
     View,
-    Linking
+    Linking, // Used to open phone settings for notifications
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// Custom hook for authentication context (to get user object and signOut function)
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// --- Helper Function to Get Token ---
+// Helper Function to Get Token
+/**
+ * Asks for notification permissions and retrieves the Expo Push Token.
+ * Also handles necessary platform-specific setup (Android channel) and
+ * provides a path to open settings if permissions are permanently denied.
+ */
 async function registerForPushNotificationsAsync() {
     let token;
 
+    // Required setup for Android to ensure notifications appear
     if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
@@ -33,7 +40,9 @@ async function registerForPushNotificationsAsync() {
         });
     }
 
+    // Push notifications only work on physical devices or real emulators (not web)
     if (Device.isDevice) {
+        // Get current permission status
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
         
@@ -43,7 +52,7 @@ async function registerForPushNotificationsAsync() {
             finalStatus = status;
         }
         
-        // Handle permanently disabled
+        // Handle permanently denied status by offering to open system settings
         if (finalStatus !== 'granted') {
             Alert.alert(
                 'Notifications Disabled',
@@ -53,10 +62,10 @@ async function registerForPushNotificationsAsync() {
                     { text: 'Open Settings', onPress: () => Linking.openSettings() }
                 ]
             );
-            return null;
+            return null; // Return null token if permission is not granted
         }
 
-        // Get the token
+        // Get the Expo Push Token using the EAS Project ID
         token = (await Notifications.getExpoPushTokenAsync({
             projectId: Constants.expoConfig?.extra?.eas?.projectId,
         })).data;
@@ -104,24 +113,29 @@ const SettingItem = ({
 );
 
 export default function SettingsScreen() {
-    const router = useRouter();
-    const { user, signOut } = useAuth();
+    const router = useRouter(); // Expo Router hook for navigation
+    const { user, signOut } = useAuth(); // Context hook to access user state and logout function
+
+    // State management for settings UI
     const [isOnline, setIsOnline] = useState(true);
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
     const [loading, setLoading] = useState(true);
 
+    // Initial load effect
     useEffect(() => {
         loadSettings();
     }, []);
 
+    // Fetches user settings (status and notification preference) from Firestore on load.
     const loadSettings = async () => {
         if (!user) return;
         try {
             const userDoc = await getDoc(doc(db, 'users', user.uid));
             if (userDoc.exists()) {
                 const data = userDoc.data();
+                // Set online status based on Firestore 'status' field
                 setIsOnline(data.status === 'online');
-                // Check if they already enabled notificaitons in DB
+                // Set notification status based on whether a 'pushToken' exists
                 setNotificationsEnabled(data.pushToken ? true: false);
             }
         } catch (error) {
@@ -140,9 +154,9 @@ export default function SettingsScreen() {
 
         try {
             if (value) {
-                // User is turning ON notifications
+                // User is turning ON notifications. Register device and get token
                 const token = await registerForPushNotificationsAsync();
-                
+
                 if (token) {
                     // Save token to Firebase
                     await updateDoc(doc(db, 'users', user.uid), {
@@ -154,8 +168,7 @@ export default function SettingsScreen() {
                     setNotificationsEnabled(false);
                 }
             } else {
-                // User is turning OFF notifications
-                // We remove the token or set a flag to false
+                // User is turning OFF notifications. Remove token from firebase
                 await updateDoc(doc(db, 'users', user.uid), {
                     notificationsEnabled: false,
                     pushToken: null // Remove token so we stop sending
@@ -175,6 +188,7 @@ export default function SettingsScreen() {
 
         try {
             const newStatus = value ? 'online' : 'offline';
+            // Update the user's status field in Firestore
             await updateDoc(doc(db, 'users', user.uid), {
                 status: newStatus
             });
@@ -195,8 +209,8 @@ export default function SettingsScreen() {
                     style: "destructive",
                     onPress: async () => {
                         try {
-                            await signOut();
-                            router.replace('/(public)/login'); // Goes to login screen
+                            await signOut(); // Call the AuthContext signOut function
+                            router.replace('/(public)/login'); // Redirect to login screen
                         } catch (error) {
                             Alert.alert("Error", "Failed to sign out");
                         }
@@ -206,6 +220,7 @@ export default function SettingsScreen() {
         );
     };
 
+    // Show loading indicator while fetching initial data
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -214,9 +229,10 @@ export default function SettingsScreen() {
         );
     }
 
+    // Main Settings UI rendering
     return (
         <SafeAreaView style={styles.container}>
-            {/* Header */}
+            {/* Header with back button functionality */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Text style={styles.backButtonText}>‹ Back</Text>
@@ -226,7 +242,7 @@ export default function SettingsScreen() {
             </View>
 
             <ScrollView style={styles.content}>
-                {/* Account */}
+                {/* Account Settings Section*/}
                 <Text style={styles.sectionHeader}>ACCOUNT</Text>
                 <View style={styles.section}>
                     <SettingItem 
@@ -241,7 +257,7 @@ export default function SettingsScreen() {
                     />
                 </View>
 
-                {/* App Preferences */}
+                {/* App Preferences Section */}
                 <Text style={styles.sectionHeader}>PREFERENCES</Text>
                 <View style={styles.section}>
                     <SettingItem 
@@ -251,6 +267,7 @@ export default function SettingsScreen() {
                         value={notificationsEnabled}
                         onToggle={toggleNotifications}
                     />
+                    {/* Online Status Toggle */}
                     <SettingItem 
                         icon={isOnline ? "🟢" : "🔴"} 
                         title={isOnline ? "Status: Online" : "Status: Offline"}
@@ -260,7 +277,7 @@ export default function SettingsScreen() {
                     />
                 </View>
 
-                {/* Support */}
+                {/* Support Section (Not yet implemented) */}
                 <Text style={styles.sectionHeader}>SUPPORT</Text>
                 <View style={styles.section}>
                     <SettingItem 
@@ -275,7 +292,7 @@ export default function SettingsScreen() {
                     />
                 </View>
 
-                {/* Actions */}
+                {/* Actions Section */}
                 <Text style={styles.sectionHeader}>ACTIONS</Text>
                 <View style={styles.section}>
                     <SettingItem 
@@ -292,10 +309,11 @@ export default function SettingsScreen() {
     );
 }
 
+// Stylesheet
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f2f2f7', // Classic iOS Settings gray
+        backgroundColor: '#f2f2f7',
     },
     header: {
         flexDirection: 'row',

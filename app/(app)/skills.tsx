@@ -1,23 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { useCallback, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
     ActivityIndicator,
     Alert,
-    RefreshControl,
-    TextInput,
     Modal,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'firebase/firestore';
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
-import { useRouter } from 'expo-router';
 import { generateConversationId } from '../../utils/conversationUtils';
 
 // User profile with skills
@@ -363,7 +362,7 @@ export default function SkillsScreen() {
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top']}>
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
