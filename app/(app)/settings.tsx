@@ -28,10 +28,16 @@ import { db } from '../../firebaseConfig';
  * provides a path to open settings if permissions are permanently denied.
  */
 async function registerForPushNotificationsAsync() {
+    // Create token variable
     let token;
 
     // Required setup for Android to ensure notifications appear
     if (Platform.OS === 'android') {
+        /** 
+         * Assigns the channel configuration to a channel of a specified name 
+         * (creating it if need be). This method lets you assign given notification channel 
+         * to a notification channel group.
+        */
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
             importance: Notifications.AndroidImportance.MAX,
