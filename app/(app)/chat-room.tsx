@@ -37,6 +37,11 @@ interface Message {
     text: string;
     timestamp: any;
     read: boolean;
+    //added for meetup requests
+    type?: 'text' | 'meetup';
+    meetupData?: {
+        accepted?: boolean;
+    };
 }
 
 // individual chat room screen for one-on-one conversations
@@ -505,6 +510,15 @@ export default function ChatRoomScreen() {
                             <Text style={styles.sendButtonText}>Send</Text>
                         )}
                     </TouchableOpacity>
+
+                    {/* Meetup button */}
+                    <TouchableOpacity
+                        style={[styles.sendButton, styles.meetupButton, !conversationReady && styles.sendButtonDisabled]}
+                        //onPress={handleSendMeetupRequest}
+                        disabled={!conversationReady}
+                    >
+                        <Text style={styles.sendButtonText}>Meetup</Text>
+                    </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
@@ -657,6 +671,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minWidth: 70,
     },
+
+    meetupButton: {
+        backgroundColor: '#34C759', // green for meetup
+        marginLeft: 8,
+    },
+
     sendButtonDisabled: {
         backgroundColor: '#ccc',
     },
