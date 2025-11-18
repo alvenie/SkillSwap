@@ -142,9 +142,7 @@ export default function ChatRoomScreen() {
         const messagesRef = collection(db, 'conversations', conversationId, 'messages');
         const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
-        const unsubscribe = onSnapshot(
-            q,
-            (snapshot) => {
+        const unsubscribe = onSnapshot(q, (snapshot) => {
                 const loadedMessages: Message[] = [];
                 snapshot.forEach((doc) => {
                     const data = doc.data();

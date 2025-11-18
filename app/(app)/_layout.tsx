@@ -74,6 +74,7 @@ export default function TabLayout() {
             <Tabs.Screen name="chat-room" options={{ href: null }} />
             <Tabs.Screen name="browse-skills" options={{ href: null }} />
             <Tabs.Screen name="manage-skills" options={{ href: null }} />
+            <Tabs.Screen name="settings" options={{ href: null}} />
         </Tabs>
     );
 }

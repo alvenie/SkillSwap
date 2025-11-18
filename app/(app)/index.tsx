@@ -1,40 +1,12 @@
 import React from 'react';
 import { useRouter } from 'expo-router';
-import { signOut } from 'firebase/auth';
-import { updateDoc, doc } from 'firebase/firestore';
-import { Alert, StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { auth, db } from '../../firebaseConfig';
 
 // main home screen with navigation to all app features
 export default function HomeScreen() {
     const { user } = useAuth();
     const router = useRouter();
-
-    // sign out with confirmation and update user status
-    const handleSignOut = async () => {
-        Alert.alert('Sign Out', 'Are you sure?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Sign Out',
-                style: 'destructive',
-                onPress: async () => {
-                    try {
-                        // update user status to offline before signing out
-                        if (user) {
-                            await updateDoc(doc(db, 'users', user.uid), {
-                                status: 'offline',
-                                lastSeen: new Date().toISOString(),
-                            });
-                        }
-                        await signOut(auth);
-                    } catch (error: any) {
-                        Alert.alert('Error', error.message);
-                    }
-                },
-            },
-        ]);
-    };
 
     return (
         <View style={styles.container}>
@@ -44,9 +16,6 @@ export default function HomeScreen() {
                     <Text style={styles.welcomeText}>Welcome!</Text>
                     {user && <Text style={styles.emailText}>{user.email}</Text>}
                 </View>
-                <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-                    <Text style={styles.signOutText}>Sign Out</Text>
-                </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.content}>
@@ -134,16 +103,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         marginTop: 4,
-    },
-    signOutButton: {
-        backgroundColor: '#ff3b30',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-    },
-    signOutText: {
-        color: '#fff',
-        fontWeight: '600',
     },
     content: {
         flex: 1,
