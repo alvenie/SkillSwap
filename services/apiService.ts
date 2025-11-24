@@ -1,34 +1,23 @@
-// API Service - Axios client for backend communication
-// Handles authentication, logging, and payment operations
-
 import axios from 'axios';
 import { auth } from '../firebaseConfig';
 
-// Backend API configuration - update this to your local network IP
-const API_BASE_URL = 'http://10.193.161.247:5205/api'; // CHANGE THIS!
+const API_BASE_URL = 'http://10.193.161.247:5205/api'; // UPDATE THIS!
 
 console.log('🔗 API Base URL:', API_BASE_URL);
 
-// Create axios instance with base configuration
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 30000, // 30 second timeout
+    timeout: 30000,
 });
 
-/**
- * IMPORTANT: Request interceptor
- * Automatically adds Firebase auth token to every API request
- * This authenticates the user with the backend
- */
 apiClient.interceptors.request.use(
     async (config) => {
         console.log('📡 Making request to:', config.url);
         console.log('📦 Request body:', JSON.stringify(config.data, null, 2));
 
-        // Get current Firebase user and attach their token
         const user = auth.currentUser;
         if (user) {
             try {
@@ -43,10 +32,6 @@ apiClient.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
-/**
- * Response interceptor
- * Logs all responses and errors for debugging
- */
 apiClient.interceptors.response.use(
     (response) => {
         console.log('✅ Response status:', response.status);
@@ -62,12 +47,7 @@ apiClient.interceptors.response.use(
     }
 );
 
-/**
- * Payment service methods
- * Wraps backend payment API endpoints with proper error handling
- */
 export const paymentService = {
-    // Create a new Stripe customer
     createCustomer: async (email: string, name: string, metadata: Record<string, string> = {}) => {
         console.log('👤 Creating customer...');
         const response = await apiClient.post('/Payment/create-customer', {
@@ -78,13 +58,6 @@ export const paymentService = {
         return response.data;
     },
 
-    /**
-     * CRITICAL: Create payment intent for processing payment
-     * Returns client secret needed by Stripe SDK on mobile
-     *
-     * Handles both camelCase and PascalCase response formats from backend
-     * (C# API returns PascalCase, but we normalize to camelCase)
-     */
     createPaymentIntent: async (
         amount: number,
         currency: string = 'usd',
@@ -92,11 +65,6 @@ export const paymentService = {
         customerId?: string
     ) => {
         console.log('💳 Creating payment intent...');
-        console.log('💳 Amount:', amount);
-        console.log('💳 Currency:', currency);
-        console.log('💳 Description:', description);
-        console.log('💳 CustomerId:', customerId);
-
         const response = await apiClient.post('/Payment/create-payment-intent', {
             amount,
             currency,
@@ -105,24 +73,14 @@ export const paymentService = {
         });
 
         const data = response.data;
-
-        // Handle both naming conventions from backend
         const clientSecret = data.clientSecret || data.ClientSecret;
         const paymentIntentId = data.paymentIntentId || data.PaymentIntentId;
 
-        console.log('✅ Payment Intent ID:', paymentIntentId);
-        console.log('✅ Client Secret (first 50 chars):', clientSecret?.substring(0, 50));
-
-        // Validate response - these are required for Stripe SDK
         if (!clientSecret) {
-            console.error('❌ NO CLIENT SECRET IN RESPONSE!');
-            console.error('Full response:', JSON.stringify(data, null, 2));
             throw new Error('No client secret returned from server');
         }
 
         if (!paymentIntentId) {
-            console.error('❌ NO PAYMENT INTENT ID IN RESPONSE!');
-            console.error('Full response:', JSON.stringify(data, null, 2));
             throw new Error('No payment intent ID returned from server');
         }
 
@@ -134,7 +92,6 @@ export const paymentService = {
         };
     },
 
-    // Manually confirm a payment intent
     confirmPayment: async (paymentIntentId: string) => {
         const response = await apiClient.post('/Payment/confirm-payment', {
             paymentIntentId,
@@ -142,27 +99,111 @@ export const paymentService = {
         return response.data;
     },
 
-    // Retrieve payment intent details
     getPaymentIntent: async (paymentIntentId: string) => {
         const response = await apiClient.get(`/Payment/payment-intent/${paymentIntentId}`);
         return response.data;
     },
 
-    // Cancel a pending payment
     cancelPayment: async (paymentIntentId: string) => {
         const response = await apiClient.post(`/Payment/cancel-payment/${paymentIntentId}`);
         return response.data;
     },
 
-    // Create a refund for a completed payment
     createRefund: async (paymentIntentId: string, amount?: number) => {
         const response = await apiClient.post(`/Payment/refund/${paymentIntentId}`, { amount });
         return response.data;
     },
 
-    // Retrieve customer details from Stripe
     getCustomer: async (customerId: string) => {
         const response = await apiClient.get(`/Payment/customer/${customerId}`);
+        return response.data;
+    },
+};
+
+export const calendarService = {
+    createMeeting: async (meetingData: {
+        requesterId: string;
+        receiverId: string;
+        title: string;
+        description?: string;
+        startTime: Date;
+        endTime: Date;
+        location?: string;
+        skillName?: string;
+    }) => {
+        console.log('📅 Creating meeting...');
+        const response = await apiClient.post('/Calendar/create-meeting', {
+            requesterId: meetingData.requesterId,
+            receiverId: meetingData.receiverId,
+            title: meetingData.title,
+            description: meetingData.description,
+            startTime: meetingData.startTime.toISOString(),
+            endTime: meetingData.endTime.toISOString(),
+            location: meetingData.location,
+            skillName: meetingData.skillName,
+        });
+        return response.data;
+    },
+
+    updateMeetingStatus: async (
+        meetingId: string,
+        status: 'accepted' | 'declined' | 'cancelled',
+        reason?: string
+    ) => {
+        console.log(`📅 Updating meeting ${meetingId} to ${status}`);
+        const response = await apiClient.put('/Calendar/update-status', {
+            meetingId,
+            status,
+            reason,
+        });
+        return response.data;
+    },
+
+    getMeeting: async (meetingId: string) => {
+        console.log(`📅 Getting meeting ${meetingId}`);
+        const response = await apiClient.get(`/Calendar/meeting/${meetingId}`);
+        return response.data;
+    },
+
+    getUserMeetings: async (userId: string, startDate?: Date, endDate?: Date) => {
+        console.log(`📅 Getting meetings for user ${userId}`);
+        const params: any = {};
+        if (startDate) params.startDate = startDate.toISOString();
+        if (endDate) params.endDate = endDate.toISOString();
+
+        const response = await apiClient.get(`/Calendar/user/${userId}/meetings`, { params });
+        return response.data;
+    },
+
+    getPendingRequests: async (userId: string) => {
+        console.log(`📅 Getting pending requests for user ${userId}`);
+        const response = await apiClient.get(`/Calendar/user/${userId}/pending-requests`);
+        return response.data;
+    },
+
+    getUserAvailability: async (userId: string, date: Date) => {
+        console.log(`📅 Getting availability for user ${userId} on ${date}`);
+        const response = await apiClient.get(`/Calendar/user/${userId}/availability`, {
+            params: { date: date.toISOString() },
+        });
+        return response.data;
+    },
+
+    checkAvailability: async (userId: string, startTime: Date, endTime: Date) => {
+        console.log(`📅 Checking availability for user ${userId}`);
+        const response = await apiClient.post('/Calendar/check-availability', {
+            userId,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+        });
+        return response.data;
+    },
+
+    cancelMeeting: async (meetingId: string, userId: string) => {
+        console.log(`📅 Cancelling meeting ${meetingId}`);
+        const response = await apiClient.delete(`/Calendar/meeting/${meetingId}`, {
+            params: { userId },
+        });
         return response.data;
     },
 };
