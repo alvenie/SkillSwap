@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -343,11 +344,8 @@ export default function ProfileScreen() {
                 {/* Header with edit button */}
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>My Profile</Text>
-                    <TouchableOpacity
-                        style={styles.editButton}
-                        onPress={() => router.push('/(app)/settings')}
-                    >
-                        <Text style={styles.editButtonText}>Settings</Text>
+                    <TouchableOpacity onPress={() => router.push('/(app)/settings')}>
+                        <Ionicons name="settings-sharp" size={26}/>
                     </TouchableOpacity>
                 </View>
 

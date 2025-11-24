@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router'; // Added useLocalSearchParams
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react'; // Added useEffect
 import {
     ActivityIndicator,
     Alert,
@@ -35,6 +35,7 @@ interface UserWithSkills {
 export default function SkillsScreen() {
     const { user } = useAuth();
     const router = useRouter();
+    const params = useLocalSearchParams(); // Get params from navigation
 
     // State for user discovery
     const [users, setUsers] = useState<UserWithSkills[]>([]);
@@ -66,10 +67,26 @@ export default function SkillsScreen() {
         }, [])
     );
 
+    // React to incoming navigation parameters (from Home screen)
+    useEffect(() => {
+        if (params.skill && typeof params.skill === 'string') {
+            const incomingSkill = params.skill;
+            // Set the selected skill UI
+            setSelectedSkill(incomingSkill);
+            
+            // If users are already loaded, filter them immediately
+            if (users.length > 0) {
+                filterUsers(searchText, incomingSkill);
+            }
+        }
+    }, [params.skill, users]); // Run when params change or when users are loaded
+
     // Load all users with skills
     const loadUsers = async () => {
         try {
-            setLoading(true);
+            // Only set loading true if it's the initial load to avoid flashing
+            if (users.length === 0) setLoading(true); 
+            
             const usersRef = collection(db, 'users');
             const querySnapshot = await getDocs(usersRef);
             const usersData: UserWithSkills[] = [];
@@ -104,7 +121,12 @@ export default function SkillsScreen() {
             });
 
             setUsers(usersData);
-            setFilteredUsers(usersData);
+            
+            // If no param is set, show all. If param IS set, the useEffect above will handle filtering
+            if (!params.skill) {
+                setFilteredUsers(usersData);
+            }
+            
             setAllSkills(['All', ...Array.from(skillsSet).sort()]);
         } catch (error: any) {
             console.error('Error loading users:', error);
@@ -165,6 +187,7 @@ export default function SkillsScreen() {
     };
 
     const filterUsers = (search: string, skill: string) => {
+        // Always filter from the master 'users' list
         let filtered = users;
 
         // Filter by skill
@@ -560,6 +583,7 @@ const styles = StyleSheet.create({
     },
     skillFilterContainer: {
         gap: 8,
+        paddingRight: 40, // Add extra padding at end of scroll
     },
     skillFilterChip: {
         paddingHorizontal: 16,
@@ -837,20 +861,20 @@ const styles = StyleSheet.create({
     cancelButton: {
         backgroundColor: '#f0f0f0',
     },
+    cancelButtonText: {
+        color: '#333',
+        fontWeight: '600',
+        fontSize: 15,
+    },
     sendButton: {
         backgroundColor: '#007AFF',
-    },
-    disabledButton: {
-        opacity: 0.6,
-    },
-    cancelButtonText: {
-        color: '#666',
-        fontWeight: '600',
-        fontSize: 16,
     },
     sendButtonText: {
         color: '#fff',
         fontWeight: '600',
-        fontSize: 16,
+        fontSize: 15,
+    },
+    disabledButton: {
+        opacity: 0.7,
     },
 });
