@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { auth } from '../firebaseConfig';
 
-const API_BASE_URL = 'http://10.193.161.247:5205/api'; // UPDATE THIS!
+const API_BASE_URL = 'http://192.168.4.60:5205/api'; // UPDATE THIS!
 
 console.log('🔗 API Base URL:', API_BASE_URL);
 

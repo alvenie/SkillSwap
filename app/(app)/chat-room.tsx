@@ -31,6 +31,7 @@ import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { paymentService } from '../../services/apiService';
 import { generateConversationId } from '../../utils/conversationUtils';
+import ScheduleMeetingModal from '../../components/ScheduleMeetingModal';
 
 // Message types
 interface BaseMessage {
@@ -39,7 +40,6 @@ interface BaseMessage {
     senderName: string;
     timestamp: any;
     read: boolean;
-    //added for meetup requests
     type?: 'text' | 'meetup';
     meetupData?: {
         accepted?: boolean;
@@ -87,6 +87,9 @@ export default function ChatRoomScreen() {
 
     // Processing payment
     const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+
+    // Meetup modal state
+    const [showMeetupModal, setShowMeetupModal] = useState(false);
 
     const hasShownAuthError = useRef(false);
     const hasShownParamsError = useRef(false);
@@ -257,7 +260,6 @@ export default function ChatRoomScreen() {
 
             const messagesRef = collection(db, 'conversations', conversationId, 'messages');
 
-            // ✅ IMPORTANT: Include 'type' field for text messages
             await addDoc(messagesRef, {
                 type: 'text',
                 senderId: user.uid,
@@ -281,15 +283,13 @@ export default function ChatRoomScreen() {
             });
         } catch (error: any) {
             console.error('❌ Error sending message:', error);
-            console.error('❌ Error code:', error.code);
-            console.error('❌ Error message:', error.message);
             Alert.alert('Error', 'Failed to send message. Please check your connection.');
         } finally {
             setSending(false);
         }
     };
 
-    // ✅ FIXED: Send payment request with all required fields
+    // Send payment request with all required fields
     const sendPaymentRequest = async () => {
         if (!user || !conversationId || !conversationReady) {
             Alert.alert('Error', 'Chat not ready. Please try again.');
@@ -312,14 +312,12 @@ export default function ChatRoomScreen() {
         try {
             console.log('💰 Sending payment request...');
 
-            // Get current user info
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
             const currentUserName = currentUserData?.displayName || user.email || 'User';
 
             const messagesRef = collection(db, 'conversations', conversationId, 'messages');
 
-            // ✅ CRITICAL: Create payment request with ALL required fields
             const paymentRequestData = {
                 type: 'payment_request',
                 senderId: user.uid,
@@ -337,7 +335,6 @@ export default function ChatRoomScreen() {
 
             console.log('✅ Payment request sent successfully');
 
-            // Update conversation metadata
             const conversationRef = doc(db, 'conversations', conversationId);
             const conversationDoc = await getDoc(conversationRef);
             const conversationData = conversationDoc.data();
@@ -351,7 +348,6 @@ export default function ChatRoomScreen() {
                 updatedAt: new Date().toISOString(),
             });
 
-            // Close modal and reset
             setShowPaymentModal(false);
             setPaymentAmount('');
             setPaymentDescription('');
@@ -359,10 +355,7 @@ export default function ChatRoomScreen() {
             Alert.alert('Success', 'Payment request sent!');
         } catch (error: any) {
             console.error('❌ Error sending payment request:', error);
-            console.error('❌ Error code:', error.code);
-            console.error('❌ Error message:', error.message);
 
-            // More specific error messages
             if (error.code === 'permission-denied') {
                 Alert.alert(
                     'Permission Denied',
@@ -387,13 +380,7 @@ export default function ChatRoomScreen() {
 
         try {
             console.log('💳 Processing payment...');
-            console.log('💳 Amount:', message.amount);
-            console.log('💳 Description:', message.description);
 
-            // IMPORTANT: Check if backend is reachable
-            console.log('🔗 Checking backend connection...');
-
-            // Create payment intent with proper error handling
             let paymentData;
             try {
                 paymentData = await paymentService.createPaymentIntent(
@@ -404,64 +391,19 @@ export default function ChatRoomScreen() {
                 );
             } catch (apiError: any) {
                 console.error('❌ API Error:', apiError);
-                console.error('❌ API Error Response:', apiError.response?.data);
-                console.error('❌ API Error Status:', apiError.response?.status);
-
-                // More specific error messages
-                if (apiError.code === 'ECONNABORTED' || apiError.code === 'ECONNREFUSED') {
-                    Alert.alert(
-                        'Connection Error',
-                        'Cannot connect to the payment server. Please check:\n\n' +
-                        '1. Backend server is running\n' +
-                        '2. API URL is correct in apiService.ts\n' +
-                        '3. Your phone and computer are on the same WiFi'
-                    );
-                } else if (apiError.response?.status === 400) {
-                    Alert.alert(
-                        'Validation Error',
-                        apiError.response?.data?.message || 'Invalid payment details'
-                    );
-                } else if (apiError.response?.status === 401) {
-                    Alert.alert(
-                        'Authentication Error',
-                        'Please log out and log back in'
-                    );
-                } else if (apiError.response?.status === 500) {
-                    Alert.alert(
-                        'Server Error',
-                        'The payment server encountered an error. Please try again.'
-                    );
-                } else if (!apiError.response) {
-                    Alert.alert(
-                        'Network Error',
-                        'Cannot reach the payment server. Please check:\n\n' +
-                        '1. Your internet connection\n' +
-                        '2. Backend server is running\n' +
-                        '3. API_BASE_URL in apiService.ts is correct'
-                    );
-                } else {
-                    Alert.alert(
-                        'Payment Error',
-                        apiError.message || 'Failed to create payment. Please try again.'
-                    );
-                }
-
+                Alert.alert('Error', 'Cannot connect to payment server');
                 setProcessingPayment(null);
                 return;
             }
 
             console.log('✅ Payment intent created:', paymentData.paymentIntentId);
 
-            // Validate payment data
             if (!paymentData.clientSecret) {
-                console.error('❌ No client secret received');
                 Alert.alert('Error', 'Invalid payment response from server');
                 setProcessingPayment(null);
                 return;
             }
 
-            // Initialize payment sheet
-            console.log('💳 Initializing payment sheet...');
             const { error: initError } = await initPaymentSheet({
                 merchantDisplayName: 'SkillSwap',
                 paymentIntentClientSecret: paymentData.clientSecret,
@@ -477,23 +419,17 @@ export default function ChatRoomScreen() {
             });
 
             if (initError) {
-                console.error('❌ Payment sheet init error:', initError);
                 Alert.alert('Payment Setup Error', initError.message);
                 setProcessingPayment(null);
                 return;
             }
 
-            console.log('✅ Payment sheet initialized');
-
-            // Present payment sheet
-            console.log('💳 Presenting payment sheet...');
             const { error: presentError } = await presentPaymentSheet();
 
             if (presentError) {
                 if (presentError.code === 'Canceled') {
                     console.log('ℹ️ User cancelled payment');
                 } else {
-                    console.error('❌ Payment presentation error:', presentError);
                     Alert.alert('Payment Failed', presentError.message);
                 }
                 setProcessingPayment(null);
@@ -502,20 +438,16 @@ export default function ChatRoomScreen() {
 
             console.log('✅ Payment successful');
 
-            // Update message status in Firestore
             try {
                 const messageRef = doc(db, 'conversations', conversationId, 'messages', message.id);
                 await updateDoc(messageRef, {
                     status: 'paid',
                     paymentIntentId: paymentData.paymentIntentId,
                 });
-                console.log('✅ Message status updated');
             } catch (updateError) {
                 console.error('❌ Error updating message status:', updateError);
-                // Payment succeeded but status update failed - not critical
             }
 
-            // Save payment to history
             try {
                 await addDoc(collection(db, 'payments'), {
                     userId: user.uid,
@@ -530,19 +462,14 @@ export default function ChatRoomScreen() {
                     date: new Date().toISOString(),
                     createdAt: new Date(),
                 });
-                console.log('✅ Payment saved to history');
             } catch (historyError) {
                 console.error('⚠️ Could not save to payment history:', historyError);
-                // Not critical - payment still succeeded
             }
 
             Alert.alert('Success! 🎉', 'Payment completed successfully');
         } catch (error: any) {
             console.error('❌ Unexpected payment error:', error);
-            Alert.alert(
-                'Payment Error',
-                error.message || 'An unexpected error occurred. Please try again.'
-            );
+            Alert.alert('Payment Error', error.message || 'An unexpected error occurred.');
         } finally {
             setProcessingPayment(null);
         }
@@ -574,6 +501,20 @@ export default function ChatRoomScreen() {
             console.error('Error cancelling payment:', error);
             Alert.alert('Error', 'Failed to cancel payment request');
         }
+    };
+
+    // Handle opening meetup modal
+    const handleOpenMeetupModal = () => {
+        if (!conversationReady) {
+            Alert.alert('Error', 'Chat not ready. Please try again.');
+            return;
+        }
+        setShowMeetupModal(true);
+    };
+
+    // Handle closing meetup modal
+    const handleCloseMeetupModal = () => {
+        setShowMeetupModal(false);
     };
 
     // Format timestamp
@@ -735,7 +676,7 @@ export default function ChatRoomScreen() {
                     onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
                 />
 
-                {/* ✅ UPDATED: Input area with payment button beside send button */}
+                {/* Input area with payment and meetup buttons */}
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.input}
@@ -774,7 +715,7 @@ export default function ChatRoomScreen() {
                     {/* Meetup button */}
                     <TouchableOpacity
                         style={[styles.sendButton, styles.meetupButton, !conversationReady && styles.sendButtonDisabled]}
-                        //onPress={handleSendMeetupRequest}
+                        onPress={handleOpenMeetupModal}
                         disabled={!conversationReady}
                     >
                         <Text style={styles.sendButtonText}>Meetup</Text>
@@ -843,6 +784,15 @@ export default function ChatRoomScreen() {
                     </View>
                 </View>
             </Modal>
+
+            {/* Meetup scheduling modal */}
+            <ScheduleMeetingModal
+                visible={showMeetupModal}
+                onClose={handleCloseMeetupModal}
+                currentUserId={user?.uid || ''}
+                otherUserId={otherUserId}
+                otherUserName={otherUserName || 'User'}
+            />
         </SafeAreaView>
     );
 }
@@ -1050,7 +1000,6 @@ const styles = StyleSheet.create({
         color: '#999',
         textAlign: 'center',
     },
-    // ✅ UPDATED: Input area with payment button
     inputContainer: {
         flexDirection: 'row',
         padding: 12,
@@ -1091,12 +1040,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minWidth: 70,
     },
-
     meetupButton: {
-        backgroundColor: '#34C759', // green for meetup
+        backgroundColor: '#34C759',
         marginLeft: 8,
     },
-
     sendButtonDisabled: {
         backgroundColor: '#ccc',
     },
