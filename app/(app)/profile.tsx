@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -17,7 +18,21 @@ import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
 
-// TypeScript interfaces to define the shape of our data
+// Theme Configuration
+const COLORS = {
+    primaryBrand: '#FCD34D', // Mustard Yellow
+    primaryBrandText: '#1F2937', // Dark Gray
+    background: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    lightGray: '#F9FAFB',
+    accentGreen: '#10B981',
+    accentRed: '#EF4444',
+};
+
+// Interfaces
 interface UserProfile {
     uid: string;
     email: string;
@@ -25,7 +40,6 @@ interface UserProfile {
     bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    profileImage?: string;
     location?: string;
     status: 'online' | 'offline' | 'in-call';
     friendCount: number;
@@ -38,295 +52,159 @@ interface FriendRequest {
     fromUserEmail: string;
     toUserId: string;
     status: 'pending' | 'accepted' | 'rejected';
-    createdAt: string;
-    message?: string;
+}
+
+interface Friend {
+    id: string; // friend document id
+    friendId: string; // user id of the friend
+    displayName: string;
+    email: string;
 }
 
 export default function ProfileScreen() {
     const { user } = useAuth();
     const router = useRouter();
 
-    // State management for all the data we need
     const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [requests, setRequests] = useState<FriendRequest[]>([]);
+    const [friends, setFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
-    const [friends, setFriends] = useState<any[]>([]);
-    const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
-    // Load everything when the screen first mounts
-    useEffect(() => {
-        loadProfile();
-        loadFriendRequests();
-        loadFriends();
-    }, []);
+    // Use focus effect to reload data when screen appears
+    useFocusEffect(
+        useCallback(() => {
+            loadAllData();
+        }, [])
+    );
 
-    // Fetch user profile from Firestore
-    const loadProfile = async () => {
+    const loadAllData = async () => {
         if (!user) return;
+        setLoading(true);
+        await Promise.all([loadUserProfile(), loadFriendRequests(), loadFriends()]);
+        setLoading(false);
+        setRefreshing(false);
+    };
 
+    const onRefresh = () => {
+        setRefreshing(true);
+        loadAllData();
+    };
+
+    const loadUserProfile = async () => {
+        if (!user) return;
         try {
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-
-            if (userDoc.exists()) {
-                // User profile exists in database
-                const data = userDoc.data();
-                setProfile({
-                    uid: user.uid,
-                    email: data.email || user.email || '',
-                    displayName: data.displayName || user.email || 'User',
-                    bio: data.bio || '',
-                    skillsTeaching: data.skillsTeaching || [],
-                    skillsLearning: data.skillsLearning || [],
-                    profileImage: data.profileImage || '',
-                    location: data.location || '',
-                    status: data.status || 'offline',
-                    friendCount: data.friendCount || 0,
-                });
-            } else {
-                // No profile yet, create a default one
-                const defaultProfile: UserProfile = {
-                    uid: user.uid,
-                    email: user.email || '',
-                    displayName: user.email || 'User',
-                    bio: '',
-                    skillsTeaching: [],
-                    skillsLearning: [],
-                    status: 'online',
-                    friendCount: 0,
-                };
-                setProfile(defaultProfile);
+            const docRef = doc(db, 'users', user.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setProfile(docSnap.data() as UserProfile);
             }
-        } catch (error: any) {
-            console.error('Error loading profile:', error);
-            Alert.alert('Error', 'Failed to load profile');
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
+        } catch (error) {
+            console.error("Error loading profile", error);
         }
     };
 
-    // Get all pending friend requests for this user
     const loadFriendRequests = async () => {
         if (!user) return;
-
         try {
-            const requestsRef = collection(db, 'friendRequests');
             const q = query(
-                requestsRef,
+                collection(db, 'friendRequests'),
                 where('toUserId', '==', user.uid),
                 where('status', '==', 'pending')
             );
-            const querySnapshot = await getDocs(q);
-
-            const requests: FriendRequest[] = [];
-            querySnapshot.forEach((doc) => {
-                requests.push({
-                    id: doc.id,
-                    ...doc.data(),
-                } as FriendRequest);
+            const snapshot = await getDocs(q);
+            const reqs: FriendRequest[] = [];
+            snapshot.forEach(doc => {
+                reqs.push({ id: doc.id, ...doc.data() } as FriendRequest);
             });
-
-            setFriendRequests(requests);
+            setRequests(reqs);
         } catch (error) {
-            console.error('Error loading friend requests:', error);
+            console.error("Error loading requests", error);
         }
     };
 
-    // Load the user's current friends list
     const loadFriends = async () => {
         if (!user) return;
-
         try {
-            const friendsRef = collection(db, 'friends');
-            const q = query(friendsRef, where('userId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
-
-            const friendsList: any[] = [];
-            querySnapshot.forEach((doc) => {
-                friendsList.push({
-                    id: doc.id,
-                    ...doc.data(),
-                });
-            });
-
-            setFriends(friendsList);
-        } catch (error) {
-            console.error('Error loading friends:', error);
-        }
-    };
-
-    // Handles accepting a friend request
-    // Creates bidirectional friendship and updates counts
-    const handleAcceptRequest = async (requestId: string, fromUserId: string, fromUserName: string, fromUserEmail: string) => {
-        if (!user) return;
-
-        setProcessingRequest(requestId);
-
-        try {
-            console.log('🎉 Accepting friend request...');
-
-            // STEP 1: Mark the friend request as accepted
-            console.log('📝 Step 1: Updating friend request status...');
-            await updateDoc(doc(db, 'friendRequests', requestId), {
-                status: 'accepted',
-                acceptedAt: new Date().toISOString(),
-            });
-            console.log('✅ Friend request status updated');
-
-            // STEP 2: Check if they're already friends (prevent duplicates)
-            console.log('🔍 Step 2: Checking for existing friendship...');
-            const existingFriendQuery = query(
+            const q = query(
                 collection(db, 'friends'),
-                where('userId', '==', user.uid),
-                where('friendId', '==', fromUserId)
+                where('userId', '==', user.uid)
             );
-            const existingFriendSnapshot = await getDocs(existingFriendQuery);
-
-            if (existingFriendSnapshot.empty) {
-                // STEP 3: Create friendship record for current user
-                console.log('👥 Step 3: Creating friendship for current user...');
-                await addDoc(collection(db, 'friends'), {
-                    userId: user.uid,
-                    userName: user.displayName || user.email,
-                    userEmail: user.email,
-                    friendId: fromUserId,
-                    friendName: fromUserName,
-                    friendEmail: fromUserEmail,
-                    createdAt: new Date().toISOString(),
-                });
-                console.log('✅ Friendship created for current user');
-
-                // STEP 4: Create friendship record for the other user (makes it bidirectional)
-                console.log('👥 Step 4: Creating friendship for other user...');
-                await addDoc(collection(db, 'friends'), {
-                    userId: fromUserId,
-                    userName: fromUserName,
-                    userEmail: fromUserEmail,
-                    friendId: user.uid,
-                    friendName: user.displayName || user.email,
-                    friendEmail: user.email,
-                    createdAt: new Date().toISOString(),
-                });
-                console.log('✅ Friendship created for other user');
-
-                // STEP 5: Update friend counts for both users
-                console.log('🔢 Step 5: Updating friend counts...');
-                try {
-                    // Get current user's friend count and increment it
-                    const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
-                    const currentUserData = currentUserDoc.data();
-                    const currentFriendCount = currentUserData?.friendCount || 0;
-
-                    await updateDoc(doc(db, 'users', user.uid), {
-                        friendCount: currentFriendCount + 1,
+            const snapshot = await getDocs(q);
+            
+            const friendsData: Friend[] = [];
+            
+            for (const friendDoc of snapshot.docs) {
+                const fData = friendDoc.data();
+                const friendProfileRef = doc(db, 'users', fData.friendId);
+                const friendProfileSnap = await getDoc(friendProfileRef);
+                
+                if (friendProfileSnap.exists()) {
+                    const fp = friendProfileSnap.data();
+                    friendsData.push({
+                        id: friendDoc.id,
+                        friendId: fData.friendId,
+                        displayName: fp.displayName || fp.email || 'User',
+                        email: fp.email
                     });
-
-                    // Same for the other user
-                    const otherUserDoc = await getDoc(doc(db, 'users', fromUserId));
-                    const otherUserData = otherUserDoc.data();
-                    const otherFriendCount = otherUserData?.friendCount || 0;
-
-                    await updateDoc(doc(db, 'users', fromUserId), {
-                        friendCount: otherFriendCount + 1,
-                    });
-                    console.log('✅ Friend counts updated');
-                } catch (countError) {
-                    // If count update fails, that's okay - friendship still created
-                    console.error('⚠️ Error updating friend counts:', countError);
                 }
-            } else {
-                console.log('⚠️ Friendship already exists, skipping creation');
             }
-
-            console.log('🎉 Friend request accepted successfully!');
-
-            // Give Firestore a moment to sync everything
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Refresh all the data to show the new friend
-            await Promise.all([
-                loadFriendRequests(),
-                loadFriends(),
-                loadProfile()
-            ]);
-
-            Alert.alert('Success! 🎉', `You and ${fromUserName} are now friends!`);
-        } catch (error: any) {
-            console.error('❌ Error accepting request:', error);
-            console.error('❌ Error details:', {
-                code: error.code,
-                message: error.message,
-                stack: error.stack
-            });
-            Alert.alert('Error', `Failed to accept friend request. Please try again.`);
-        } finally {
-            setProcessingRequest(null);
+            setFriends(friendsData);
+        } catch (error) {
+            console.error("Error loading friends", error);
         }
     };
 
-    // Reject a friend request - much simpler than accepting
+    const handleAcceptRequest = async (request: FriendRequest) => {
+        try {
+            await updateDoc(doc(db, 'friendRequests', request.id), { status: 'accepted' });
+
+            await addDoc(collection(db, 'friends'), {
+                userId: user!.uid,
+                friendId: request.fromUserId,
+                createdAt: new Date().toISOString()
+            });
+            
+            await addDoc(collection(db, 'friends'), {
+                userId: request.fromUserId,
+                friendId: user!.uid,
+                createdAt: new Date().toISOString()
+            });
+
+            Alert.alert('Success', 'Friend request accepted!');
+            loadAllData();
+        } catch (error) {
+            Alert.alert('Error', 'Could not accept request');
+        }
+    };
+
     const handleRejectRequest = async (requestId: string) => {
         try {
-            await updateDoc(doc(db, 'friendRequests', requestId), {
-                status: 'rejected',
-                rejectedAt: new Date().toISOString(),
-            });
-
-            Alert.alert('Request Rejected', 'Friend request has been rejected');
+            await updateDoc(doc(db, 'friendRequests', requestId), { status: 'rejected' });
             loadFriendRequests();
-        } catch (error: any) {
-            console.error('Error rejecting request:', error);
-            Alert.alert('Error', 'Failed to reject friend request');
+        } catch (error) {
+            console.error(error);
         }
     };
 
-    // Open a chat with a friend
-    const handleOpenChat = (friendId: string, friendName: string) => {
+    const handleMessageFriend = (friend: Friend) => {
         if (!user) return;
-
-        // Generate a unique conversation ID for this pair of users
-        const conversationId = generateConversationId(user.uid, friendId);
-
-        console.log('💬 Opening chat with:', friendName);
-        console.log('📝 Conversation ID:', conversationId);
-
+        const conversationId = generateConversationId(user.uid, friend.friendId);
         router.push({
             pathname: '/(app)/chat-room',
             params: {
                 conversationId,
-                otherUserId: friendId,
-                otherUserName: friendName,
-            },
+                otherUserId: friend.friendId,
+                otherUserName: friend.displayName
+            }
         });
     };
 
-    // Pull-to-refresh handler
-    const onRefresh = () => {
-        setRefreshing(true);
-        loadProfile();
-        loadFriendRequests();
-        loadFriends();
-    };
-
-    // Show loading spinner while fetching data
-    if (loading) {
+    if (loading && !refreshing) {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
-                    <Text style={styles.loadingText}>Loading profile...</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
-
-    // Show error if profile couldn't be loaded
-    if (!profile) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>Profile not found</Text>
+                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
                 </View>
             </SafeAreaView>
         );
@@ -334,109 +212,127 @@ export default function ProfileScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
-            <ScrollView
+            <View style={styles.header}>
+                <Text style={styles.headerTitle}>Profile</Text>
+                <TouchableOpacity onPress={() => router.push('/(app)/settings')} style={styles.settingsButton}>
+                    <Ionicons name="settings-outline" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+            </View>
+
+            <ScrollView 
                 style={styles.content}
+                contentContainerStyle={styles.scrollContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primaryBrand} />}
                 showsVerticalScrollIndicator={false}
-                refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
-                }
             >
-                {/* Header with edit button */}
-                <View style={styles.header}>
-                    <Text style={styles.headerTitle}>My Profile</Text>
-                    <TouchableOpacity onPress={() => router.push('/(app)/settings')}>
-                        <Ionicons name="settings-sharp" size={26}/>
-                    </TouchableOpacity>
+                {/* Profile Header Card */}
+                <View style={styles.profileCard}>
+                    <View style={styles.profileHeader}>
+                        <View style={styles.avatarContainer}>
+                            <View style={styles.avatar}>
+                                <Text style={styles.avatarText}>
+                                    {profile?.displayName?.charAt(0).toUpperCase() || 'U'}
+                                </Text>
+                            </View>
+                            <TouchableOpacity 
+                                style={styles.editIconBtn}
+                                onPress={() => router.push('/(app)/edit-profile')}
+                            >
+                                <Ionicons name="pencil" size={16} color="white" />
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <Text style={styles.userName}>{profile?.displayName || 'User'}</Text>
+                        <Text style={styles.userEmail}>{profile?.email}</Text>
+                        
+                        {profile?.location && (
+                            <View style={styles.locationRow}>
+                                <Ionicons name="location-outline" size={16} color={COLORS.textSecondary} />
+                                <Text style={styles.locationText}>{profile.location}</Text>
+                            </View>
+                        )}
+
+                        {profile?.bio && (
+                            <Text style={styles.bioText}>{profile.bio}</Text>
+                        )}
+
+                        {/* Stats Row */}
+                        <View style={styles.statsRow}>
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{friends.length}</Text>
+                                <Text style={styles.statLabel}>Friends</Text>
+                            </View>
+                            <View style={styles.statDivider} />
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{profile?.skillsTeaching.length || 0}</Text>
+                                <Text style={styles.statLabel}>Teaches</Text>
+                            </View>
+                            <View style={styles.statDivider} />
+                            <View style={styles.statItem}>
+                                <Text style={styles.statValue}>{profile?.skillsLearning.length || 0}</Text>
+                                <Text style={styles.statLabel}>Learns</Text>
+                            </View>
+                        </View>
+                    </View>
                 </View>
 
-                {/* Main profile card with avatar, name, and stats */}
-                <View style={styles.profileCard}>
-                    <View style={styles.avatarContainer}>
-                        {/* Avatar shows first letter of name */}
-                        <View style={styles.avatar}>
-                            <Text style={styles.avatarText}>
-                                {profile.displayName.charAt(0).toUpperCase()}
+                {/* Skills Section */}
+                <View style={styles.sectionContainer}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Skills</Text>
+                        <TouchableOpacity onPress={() => router.push('/(app)/edit-profile')}>
+                            <Text style={styles.linkText}>Manage</Text>
+                        </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.skillsCard}>
+                        <View style={styles.skillRow}>
+                            <Text style={styles.skillLabel}>Teaches:</Text>
+                            <Text style={styles.skillList}>
+                                {profile?.skillsTeaching && profile.skillsTeaching.length > 0 
+                                    ? profile.skillsTeaching.join(', ') 
+                                    : 'No skills listed'}
                             </Text>
                         </View>
-                        {/* Online status indicator */}
-                        <View
-                            style={[
-                                styles.statusBadge,
-                                { backgroundColor: profile.status === 'online' ? '#4CAF50' : '#ccc' },
-                            ]}
-                        />
-                    </View>
-                    <Text style={styles.displayName}>{profile.displayName}</Text>
-                    <Text style={styles.email}>{profile.email}</Text>
-                    {profile.location && (
-                        <Text style={styles.location}>📍 {profile.location}</Text>
-                    )}
-                    {profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-
-                    {/* Stats row - friends, teaching, learning counts */}
-                    <View style={styles.statsContainer}>
-                        <View style={styles.statItem}>
-                            <Text style={styles.statValue}>{friends.length}</Text>
-                            <Text style={styles.statLabel}>Friends</Text>
-                        </View>
-                        <View style={styles.statDivider} />
-                        <View style={styles.statItem}>
-                            <Text style={styles.statValue}>{profile.skillsTeaching.length}</Text>
-                            <Text style={styles.statLabel}>Teaching</Text>
-                        </View>
-                        <View style={styles.statDivider} />
-                        <View style={styles.statItem}>
-                            <Text style={styles.statValue}>{profile.skillsLearning.length}</Text>
-                            <Text style={styles.statLabel}>Learning</Text>
+                        <View style={styles.divider} />
+                        <View style={styles.skillRow}>
+                            <Text style={styles.skillLabel}>Learns:</Text>
+                            <Text style={styles.skillList}>
+                                {profile?.skillsLearning && profile.skillsLearning.length > 0 
+                                    ? profile.skillsLearning.join(', ') 
+                                    : 'No interests listed'}
+                            </Text>
                         </View>
                     </View>
                 </View>
 
-                {/* Friend requests section - only shows if there are pending requests */}
-                {friendRequests.length > 0 && (
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>
-                            🔔 Friend Requests ({friendRequests.length})
-                        </Text>
-                        {friendRequests.map((request) => (
-                            <View key={request.id} style={styles.requestCard}>
+                {/* Friend Requests */}
+                {requests.length > 0 && (
+                    <View style={styles.sectionContainer}>
+                        <Text style={styles.sectionTitle}>Requests ({requests.length})</Text>
+                        {requests.map(req => (
+                            <View key={req.id} style={styles.requestCard}>
                                 <View style={styles.requestInfo}>
-                                    <Text style={styles.requestName}>{request.fromUserName}</Text>
-                                    <Text style={styles.requestEmail}>{request.fromUserEmail}</Text>
-                                    {request.message && (
-                                        <Text style={styles.requestMessage}>"{request.message}"</Text>
-                                    )}
+                                    <View style={styles.miniAvatar}>
+                                        <Text style={styles.miniAvatarText}>{req.fromUserName.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                    <View>
+                                        <Text style={styles.requestName}>{req.fromUserName}</Text>
+                                        <Text style={styles.requestSub}>wants to connect</Text>
+                                    </View>
                                 </View>
-                                {/* Accept/Reject buttons */}
                                 <View style={styles.requestActions}>
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.requestButton,
-                                            styles.acceptButton,
-                                            processingRequest === request.id && styles.disabledButton
-                                        ]}
-                                        onPress={() =>
-                                            handleAcceptRequest(
-                                                request.id,
-                                                request.fromUserId,
-                                                request.fromUserName,
-                                                request.fromUserEmail
-                                            )
-                                        }
-                                        disabled={processingRequest === request.id}
+                                    <TouchableOpacity 
+                                        style={styles.rejectButton} 
+                                        onPress={() => handleRejectRequest(req.id)}
                                     >
-                                        {processingRequest === request.id ? (
-                                            <ActivityIndicator size="small" color="#fff" />
-                                        ) : (
-                                            <Text style={styles.acceptButtonText}>✓ Accept</Text>
-                                        )}
+                                        <Ionicons name="close" size={20} color={COLORS.textSecondary} />
                                     </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[styles.requestButton, styles.rejectButton]}
-                                        onPress={() => handleRejectRequest(request.id)}
-                                        disabled={processingRequest === request.id}
+                                    <TouchableOpacity 
+                                        style={styles.acceptButton}
+                                        onPress={() => handleAcceptRequest(req)}
                                     >
-                                        <Text style={styles.rejectButtonText}>✕ Reject</Text>
+                                        <Ionicons name="checkmark" size={20} color={COLORS.primaryBrandText} />
                                     </TouchableOpacity>
                                 </View>
                             </View>
@@ -444,95 +340,40 @@ export default function ProfileScreen() {
                     </View>
                 )}
 
-                {/* Skills they can teach */}
-                <View style={styles.section}>
+                {/* Friends List */}
+                <View style={styles.sectionContainer}>
                     <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>🎓 Skills I Can Teach</Text>
-                        <TouchableOpacity onPress={() => router.push('/(app)/edit-profile')}>
-                            <Text style={styles.addButton}>+ Add</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {profile.skillsTeaching.length > 0 ? (
-                        <View style={styles.skillsContainer}>
-                            {profile.skillsTeaching.map((skill, index) => (
-                                <View key={index} style={[styles.skillChip, styles.teachingChip]}>
-                                    <Text style={styles.skillChipText}>{skill}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    ) : (
-                        <View style={styles.emptySkills}>
-                            <Text style={styles.emptySkillsText}>
-                                No skills added yet. Add skills you can teach!
-                            </Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* Skills they want to learn */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>📚 Skills I Want to Learn</Text>
-                        <TouchableOpacity onPress={() => router.push('/(app)/edit-profile')}>
-                            <Text style={styles.addButton}>+ Add</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {profile.skillsLearning.length > 0 ? (
-                        <View style={styles.skillsContainer}>
-                            {profile.skillsLearning.map((skill, index) => (
-                                <View key={index} style={[styles.skillChip, styles.learningChip]}>
-                                    <Text style={styles.skillChipText}>{skill}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    ) : (
-                        <View style={styles.emptySkills}>
-                            <Text style={styles.emptySkillsText}>
-                                No learning goals yet. Add skills you want to learn!
-                            </Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* Friends list with message buttons */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>👥 My Friends ({friends.length})</Text>
+                        <Text style={styles.sectionTitle}>Friends ({friends.length})</Text>
                         <TouchableOpacity onPress={() => router.push('/(app)/find-friends')}>
-                            <Text style={styles.addButton}>Find Friends</Text>
+                            <Text style={styles.linkText}>+ Find New</Text>
                         </TouchableOpacity>
                     </View>
-                    {friends.length > 0 ? (
-                        friends.map((friend) => (
+
+                    {friends.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            <Text style={styles.emptyText}>No friends yet.</Text>
+                        </View>
+                    ) : (
+                        friends.map(friend => (
                             <View key={friend.id} style={styles.friendCard}>
-                                <View style={styles.friendAvatar}>
-                                    <Text style={styles.friendAvatarText}>
-                                        {friend.friendName?.charAt(0).toUpperCase()}
-                                    </Text>
+                                <View style={styles.friendInfoContainer}>
+                                    <View style={styles.miniAvatar}>
+                                        <Text style={styles.miniAvatarText}>{friend.displayName.charAt(0).toUpperCase()}</Text>
+                                    </View>
+                                    <Text style={styles.friendName}>{friend.displayName}</Text>
                                 </View>
-                                <View style={styles.friendInfo}>
-                                    <Text style={styles.friendName}>{friend.friendName}</Text>
-                                    <Text style={styles.friendEmail}>{friend.friendEmail}</Text>
-                                </View>
-                                {/* Message button opens chat with this friend */}
-                                <TouchableOpacity
+                                <TouchableOpacity 
                                     style={styles.messageButton}
-                                    onPress={() => handleOpenChat(friend.friendId, friend.friendName)}
+                                    onPress={() => handleMessageFriend(friend)}
                                 >
-                                    <Text style={styles.messageButtonText}>💬</Text>
+                                    <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.primaryBrandText} />
                                 </TouchableOpacity>
                             </View>
                         ))
-                    ) : (
-                        <View style={styles.emptySkills}>
-                            <Text style={styles.emptySkillsText}>
-                                No friends yet. Start connecting with others!
-                            </Text>
-                        </View>
                     )}
                 </View>
 
-                <View style={styles.bottomSpacer} />
+                <View style={{ height: 40 }} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -541,54 +382,46 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: COLORS.background,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
-    },
-    content: {
-        flex: 1,
-    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 20,
-        paddingTop: 10,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        backgroundColor: COLORS.background,
     },
     headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#333',
+        fontSize: 24,
+        fontWeight: '800',
+        color: COLORS.textPrimary,
     },
-    editButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
+    settingsButton: {
+        padding: 8,
+        backgroundColor: COLORS.lightGray,
+        borderRadius: 20,
     },
-    editButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 14,
+    content: {
+        flex: 1,
     },
-    // Main profile card styling
+    scrollContent: {
+        padding: 20,
+        paddingTop: 10,
+    },
+    // Profile Card
     profileCard: {
-        backgroundColor: '#fff',
-        padding: 24,
         alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        marginBottom: 24,
+    },
+    profileHeader: {
+        alignItems: 'center',
+        width: '100%',
     },
     avatarContainer: {
         position: 'relative',
@@ -598,248 +431,231 @@ const styles = StyleSheet.create({
         width: 100,
         height: 100,
         borderRadius: 50,
-        backgroundColor: '#007AFF',
+        backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
+        borderWidth: 4,
+        borderColor: '#FFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 5,
     },
     avatarText: {
         fontSize: 40,
         fontWeight: 'bold',
-        color: '#fff',
+        color: COLORS.primaryBrandText,
     },
-    // Little green/gray dot showing online status
-    statusBadge: {
+    editIconBtn: {
         position: 'absolute',
-        bottom: 5,
-        right: 5,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        borderWidth: 3,
-        borderColor: '#fff',
+        bottom: 0,
+        right: 0,
+        backgroundColor: COLORS.textPrimary,
+        padding: 8,
+        borderRadius: 20,
+        borderWidth: 2,
+        borderColor: '#FFF',
     },
-    displayName: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#333',
+    userName: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
         marginBottom: 4,
     },
-    email: {
-        fontSize: 16,
-        color: '#666',
+    userEmail: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
         marginBottom: 8,
     },
-    location: {
-        fontSize: 14,
-        color: '#999',
-        marginBottom: 12,
-    },
-    bio: {
-        fontSize: 14,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 20,
-        paddingHorizontal: 20,
-        lineHeight: 20,
-    },
-    // Stats section with dividers
-    statsContainer: {
+    locationRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-around',
+        marginBottom: 12,
+        gap: 4,
+    },
+    locationText: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+    },
+    bioText: {
+        fontSize: 14,
+        color: COLORS.textPrimary,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 20,
+        paddingHorizontal: 20,
+    },
+    statsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.lightGray,
+        borderRadius: 16,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
         width: '100%',
-        paddingTop: 16,
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+        justifyContent: 'space-between',
     },
     statItem: {
         alignItems: 'center',
         flex: 1,
     },
     statValue: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#007AFF',
-        marginBottom: 4,
+        fontSize: 18,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
     },
     statLabel: {
         fontSize: 12,
-        color: '#666',
+        color: COLORS.textSecondary,
+        marginTop: 2,
     },
     statDivider: {
         width: 1,
-        height: 40,
-        backgroundColor: '#e0e0e0',
+        height: 24,
+        backgroundColor: COLORS.border,
     },
-    section: {
-        padding: 20,
+    // Sections
+    sectionContainer: {
+        marginBottom: 24,
     },
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 12,
     },
     sectionTitle: {
         fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
+        fontWeight: '700',
+        color: COLORS.textPrimary,
     },
-    addButton: {
+    linkText: {
         fontSize: 14,
-        color: '#007AFF',
         fontWeight: '600',
+        color: '#B45309',
     },
-    skillsContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    // Skill chips with different colors for teaching vs learning
-    skillChip: {
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+    // Skills Card
+    skillsCard: {
+        backgroundColor: COLORS.cardBackground,
         borderRadius: 16,
-        marginRight: 8,
-        marginBottom: 8,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
     },
-    teachingChip: {
-        backgroundColor: '#E3F2FD',
-    },
-    learningChip: {
-        backgroundColor: '#FFF3E0',
-    },
-    skillChipText: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: '#333',
-    },
-    emptySkills: {
-        padding: 20,
-        backgroundColor: '#f9f9f9',
-        borderRadius: 12,
+    skillRow: {
+        flexDirection: 'row',
         alignItems: 'center',
     },
-    emptySkillsText: {
+    skillLabel: {
         fontSize: 14,
-        color: '#999',
-        textAlign: 'center',
+        fontWeight: '700',
+        color: COLORS.textSecondary,
+        width: 70,
     },
-    // Friend request cards with blue border
+    skillList: {
+        fontSize: 14,
+        color: COLORS.textPrimary,
+        flex: 1,
+        lineHeight: 20,
+    },
+    divider: {
+        height: 1,
+        backgroundColor: COLORS.lightGray,
+        marginVertical: 12,
+    },
+    // Request Card
     requestCard: {
-        backgroundColor: '#fff',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.cardBackground,
+        padding: 12,
         borderRadius: 12,
-        padding: 16,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: '#007AFF',
+        borderColor: COLORS.border,
+        justifyContent: 'space-between',
     },
     requestInfo: {
-        marginBottom: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
     },
     requestName: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#333',
-        marginBottom: 4,
+        color: COLORS.textPrimary,
     },
-    requestEmail: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 8,
-    },
-    requestMessage: {
-        fontSize: 13,
-        color: '#007AFF',
-        fontStyle: 'italic',
+    requestSub: {
+        fontSize: 12,
+        color: COLORS.textSecondary,
     },
     requestActions: {
         flexDirection: 'row',
         gap: 8,
     },
-    requestButton: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 8,
+    acceptButton: {
+        backgroundColor: COLORS.primaryBrand,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
         alignItems: 'center',
     },
-    acceptButton: {
-        backgroundColor: '#4CAF50',
-    },
-    acceptButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 14,
-    },
     rejectButton: {
-        backgroundColor: '#f0f0f0',
+        backgroundColor: COLORS.lightGray,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    rejectButtonText: {
-        color: '#666',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    disabledButton: {
-        opacity: 0.6,
-    },
-    // Friend list item styling
+    // Friend Card
     friendCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
-        borderRadius: 12,
+        justifyContent: 'space-between',
+        backgroundColor: COLORS.cardBackground,
         padding: 12,
-        marginBottom: 8,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: COLORS.border,
     },
-    friendAvatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#4CAF50',
+    friendInfoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    miniAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 12,
     },
-    friendAvatarText: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    friendInfo: {
-        flex: 1,
+    miniAvatarText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
     friendName: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#333',
-        marginBottom: 2,
+        color: COLORS.textPrimary,
     },
-    friendEmail: {
-        fontSize: 13,
-        color: '#666',
-    },
-    // Message button on friend cards
     messageButton: {
-        width: 40,
-        height: 40,
+        padding: 8,
+        backgroundColor: COLORS.lightGray,
         borderRadius: 20,
-        backgroundColor: '#E3F2FD',
-        justifyContent: 'center',
-        alignItems: 'center',
     },
-    messageButtonText: {
-        fontSize: 20,
-    },
-    emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
+    emptyState: {
+        padding: 20,
         alignItems: 'center',
     },
     emptyText: {
-        fontSize: 16,
-        color: '#999',
-    },
-    bottomSpacer: {
-        height: 40,
+        color: COLORS.textSecondary,
+        fontSize: 14,
     },
 });
