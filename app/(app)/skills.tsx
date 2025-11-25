@@ -20,7 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
 
-// --- Configuration ---
+// Configuration
 const ITEMS_PER_PAGE = 10;
 
 const COLORS = {
