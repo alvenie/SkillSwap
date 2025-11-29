@@ -28,11 +28,11 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ScheduleMeetingModal from '../../components/ScheduleMeetingModal';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { paymentService } from '../../services/apiService';
 import { generateConversationId } from '../../utils/conversationUtils';
-import ScheduleMeetingModal from '../../components/ScheduleMeetingModal';
 
 // Theme Configuration
 const COLORS = {
@@ -476,6 +476,11 @@ export default function ChatRoomScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <KeyboardAvoidingView 
+                style={{ flex: 1 }} 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+            >
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
@@ -526,7 +531,7 @@ export default function ChatRoomScreen() {
                             styles.sendButton,
                             (!messageText.trim() || sending || !conversationReady) && styles.sendButtonDisabled,
                         ]}
-                        onPress={handleSend}
+                        onPress={sendMessage}
                         disabled={!messageText.trim() || sending || !conversationReady}
                     >
                         {sending ? (
