@@ -32,6 +32,7 @@ import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { paymentService } from '../../services/apiService';
 import { generateConversationId } from '../../utils/conversationUtils';
+import ScheduleMeetingModal from '../../components/ScheduleMeetingModal';
 
 // Theme Configuration
 const COLORS = {
@@ -57,7 +58,10 @@ interface BaseMessage {
     senderName: string;
     timestamp: any;
     read: boolean;
-    type?: 'text' | 'payment_request';
+    type?: 'text' | 'meetup';
+    meetupData?: {
+        accepted?: boolean;
+    };
 }
 
 interface TextMessage extends BaseMessage {
@@ -102,6 +106,11 @@ export default function ChatRoomScreen() {
     const [sendingPaymentRequest, setSendingPaymentRequest] = useState(false);
     const [processingPayment, setProcessingPayment] = useState<string | null>(null);
 
+    // Meetup modal state
+    const [showMeetupModal, setShowMeetupModal] = useState(false);
+
+    const hasShownAuthError = useRef(false);
+    const hasShownParamsError = useRef(false);
     const isInitializing = useRef(false);
 
     // 1. Initialize Conversation ID
@@ -183,7 +192,13 @@ export default function ChatRoomScreen() {
         if (!messageText.trim() || !user) return;
         setSending(true);
         try {
-            await addDoc(collection(db, 'conversations', conversationId, 'messages'), {
+            const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+            const currentUserData = currentUserDoc.data();
+            const currentUserName = currentUserData?.displayName || user.email || 'User';
+
+            const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+
+            await addDoc(messagesRef, {
                 type: 'text',
                 senderId: user.uid,
                 senderName: user.email, 
@@ -197,20 +212,28 @@ export default function ChatRoomScreen() {
                 lastMessageTime: new Date().toISOString(),
                 lastMessageSender: user.uid
             });
-            setMessageText('');
-        } catch (e) {
-            Alert.alert('Error', 'Failed to send');
+        } catch (error: any) {
+            console.error('❌ Error sending message:', error);
+            Alert.alert('Error', 'Failed to send message. Please check your connection.');
         } finally {
             setSending(false);
         }
     };
 
+    // Send payment request with all required fields
     const sendPaymentRequest = async () => {
         if (!paymentAmount || !paymentDescription) return Alert.alert('Missing fields');
         setSendingPaymentRequest(true);
         try {
-            const amount = parseFloat(paymentAmount);
-            await addDoc(collection(db, 'conversations', conversationId, 'messages'), {
+            console.log('💰 Sending payment request...');
+
+            const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+            const currentUserData = currentUserDoc.data();
+            const currentUserName = currentUserData?.displayName || user.email || 'User';
+
+            const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+
+            const paymentRequestData = {
                 type: 'payment_request',
                 senderId: user!.uid,
                 senderName: user!.email,
@@ -218,18 +241,42 @@ export default function ChatRoomScreen() {
                 description: paymentDescription,
                 status: 'pending',
                 timestamp: Timestamp.now(),
-                read: false
-            });
-            await updateDoc(doc(db, 'conversations', conversationId), {
-                lastMessage: `💰 Payment Request: $${amount}`,
+                read: false,
+            };
+
+            console.log('📤 Payment request data:', paymentRequestData);
+
+            await addDoc(messagesRef, paymentRequestData);
+
+            console.log('✅ Payment request sent successfully');
+
+            const conversationRef = doc(db, 'conversations', conversationId);
+            const conversationDoc = await getDoc(conversationRef);
+            const conversationData = conversationDoc.data();
+            const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
+
+            await updateDoc(conversationRef, {
+                lastMessage: `💰 Payment request: $${amount.toFixed(2)}`,
                 lastMessageTime: new Date().toISOString(),
                 lastMessageSender: user!.uid
             });
+
             setShowPaymentModal(false);
             setPaymentAmount('');
             setPaymentDescription('');
-        } catch (e) {
-            Alert.alert('Error', 'Failed to send request');
+
+            Alert.alert('Success', 'Payment request sent!');
+        } catch (error: any) {
+            console.error('❌ Error sending payment request:', error);
+
+            if (error.code === 'permission-denied') {
+                Alert.alert(
+                    'Permission Denied',
+                    'Unable to send payment request. Please make sure your Firebase rules are updated correctly.'
+                );
+            } else {
+                Alert.alert('Error', `Failed to send payment request: ${error.message}`);
+            }
         } finally {
             setSendingPaymentRequest(false);
         }
@@ -238,8 +285,31 @@ export default function ChatRoomScreen() {
     const handlePayment = async (message: PaymentRequestMessage) => {
         setProcessingPayment(message.id);
         try {
-            const { clientSecret, paymentIntentId } = await paymentService.createPaymentIntent(message.amount, 'usd');
-            
+            console.log('💳 Processing payment...');
+
+            let paymentData;
+            try {
+                paymentData = await paymentService.createPaymentIntent(
+                    message.amount,
+                    'usd',
+                    message.description,
+                    undefined
+                );
+            } catch (apiError: any) {
+                console.error('❌ API Error:', apiError);
+                Alert.alert('Error', 'Cannot connect to payment server');
+                setProcessingPayment(null);
+                return;
+            }
+
+            console.log('✅ Payment intent created:', paymentData.paymentIntentId);
+
+            if (!paymentData.clientSecret) {
+                Alert.alert('Error', 'Invalid payment response from server');
+                setProcessingPayment(null);
+                return;
+            }
+
             const { error: initError } = await initPaymentSheet({
                 merchantDisplayName: 'SkillSwap',
                 paymentIntentClientSecret: clientSecret,
@@ -247,22 +317,115 @@ export default function ChatRoomScreen() {
             });
             if (initError) throw new Error(initError.message);
 
+            if (initError) {
+                Alert.alert('Payment Setup Error', initError.message);
+                setProcessingPayment(null);
+                return;
+            }
+
             const { error: presentError } = await presentPaymentSheet();
             if (presentError) throw new Error(presentError.message);
 
-            await updateDoc(doc(db, 'conversations', conversationId, 'messages', message.id), {
-                status: 'paid',
-                paymentIntentId: paymentIntentId
-            });
-            Alert.alert('Success', 'Payment Completed!');
-        } catch (e: any) {
-            if (e.message !== 'Canceled') Alert.alert('Payment Failed', e.message);
+            if (presentError) {
+                if (presentError.code === 'Canceled') {
+                    console.log('ℹ️ User cancelled payment');
+                } else {
+                    Alert.alert('Payment Failed', presentError.message);
+                }
+                setProcessingPayment(null);
+                return;
+            }
+
+            console.log('✅ Payment successful');
+
+            try {
+                const messageRef = doc(db, 'conversations', conversationId, 'messages', message.id);
+                await updateDoc(messageRef, {
+                    status: 'paid',
+                    paymentIntentId: paymentData.paymentIntentId,
+                });
+            } catch (updateError) {
+                console.error('❌ Error updating message status:', updateError);
+            }
+
+            try {
+                await addDoc(collection(db, 'payments'), {
+                    userId: user.uid,
+                    userEmail: user.email,
+                    userName: user.displayName || user.email,
+                    skillName: message.description,
+                    instructor: message.senderName,
+                    amount: message.amount,
+                    currency: 'usd',
+                    paymentIntentId: paymentData.paymentIntentId,
+                    status: 'completed',
+                    date: new Date().toISOString(),
+                    createdAt: new Date(),
+                });
+            } catch (historyError) {
+                console.error('⚠️ Could not save to payment history:', historyError);
+            }
+
+            Alert.alert('Success! 🎉', 'Payment completed successfully');
+        } catch (error: any) {
+            console.error('❌ Unexpected payment error:', error);
+            Alert.alert('Payment Error', error.message || 'An unexpected error occurred.');
         } finally {
             setProcessingPayment(null);
         }
     };
 
-    // --- Render ---
+    // Decline payment request
+    const handleDeclinePayment = async (messageId: string) => {
+        try {
+            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+            await updateDoc(messageRef, {
+                status: 'declined',
+            });
+            Alert.alert('Declined', 'Payment request declined');
+        } catch (error) {
+            console.error('Error declining payment:', error);
+            Alert.alert('Error', 'Failed to decline payment request');
+        }
+    };
+
+    // Cancel payment request (sender only)
+    const handleCancelPayment = async (messageId: string) => {
+        try {
+            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+            await updateDoc(messageRef, {
+                status: 'cancelled',
+            });
+            Alert.alert('Cancelled', 'Payment request cancelled');
+        } catch (error) {
+            console.error('Error cancelling payment:', error);
+            Alert.alert('Error', 'Failed to cancel payment request');
+        }
+    };
+
+    // Handle opening meetup modal
+    const handleOpenMeetupModal = () => {
+        if (!conversationReady) {
+            Alert.alert('Error', 'Chat not ready. Please try again.');
+            return;
+        }
+        setShowMeetupModal(true);
+    };
+
+    // Handle closing meetup modal
+    const handleCloseMeetupModal = () => {
+        setShowMeetupModal(false);
+    };
+
+    // Format timestamp
+    const formatTime = (timestamp: any) => {
+        try {
+            const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        } catch {
+            return '';
+        }
+    };
 
     const renderMessage = ({ item }: { item: Message }) => {
         const isSelf = item.senderId === user?.uid;
@@ -338,12 +501,8 @@ export default function ChatRoomScreen() {
                 />
             )}
 
-            {/* Input */}
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
-                <View style={styles.inputBar}>
-                    <TouchableOpacity onPress={() => setShowPaymentModal(true)} style={styles.attachBtn}>
-                        <Ionicons name="wallet-outline" size={24} color={COLORS.textSecondary} />
-                    </TouchableOpacity>
+                {/* Input area with payment and meetup buttons */}
+                <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.textInput}
                         placeholder="Type a message..."
@@ -351,8 +510,39 @@ export default function ChatRoomScreen() {
                         onChangeText={setMessageText}
                         multiline
                     />
-                    <TouchableOpacity onPress={sendMessage} disabled={!messageText.trim()} style={styles.sendBtn}>
-                        <Ionicons name="send" size={20} color={COLORS.primaryBrandText} />
+
+                    {/* Payment button */}
+                    <TouchableOpacity
+                        style={styles.paymentIconButton}
+                        onPress={() => setShowPaymentModal(true)}
+                        disabled={!conversationReady}
+                    >
+                        <Text style={styles.paymentIconText}>💰</Text>
+                    </TouchableOpacity>
+
+                    {/* Send button */}
+                    <TouchableOpacity
+                        style={[
+                            styles.sendButton,
+                            (!messageText.trim() || sending || !conversationReady) && styles.sendButtonDisabled,
+                        ]}
+                        onPress={handleSend}
+                        disabled={!messageText.trim() || sending || !conversationReady}
+                    >
+                        {sending ? (
+                            <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                            <Text style={styles.sendButtonText}>Send</Text>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* Meetup button */}
+                    <TouchableOpacity
+                        style={[styles.sendButton, styles.meetupButton, !conversationReady && styles.sendButtonDisabled]}
+                        onPress={handleOpenMeetupModal}
+                        disabled={!conversationReady}
+                    >
+                        <Text style={styles.sendButtonText}>Meetup</Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
@@ -387,6 +577,15 @@ export default function ChatRoomScreen() {
                     </View>
                 </View>
             </Modal>
+
+            {/* Meetup scheduling modal */}
+            <ScheduleMeetingModal
+                visible={showMeetupModal}
+                onClose={handleCloseMeetupModal}
+                currentUserId={user?.uid || ''}
+                otherUserId={otherUserId}
+                otherUserName={otherUserName || 'User'}
+            />
         </SafeAreaView>
     );
 }
@@ -595,6 +794,214 @@ const styles = StyleSheet.create({
     },
     modalActions: { 
         flexDirection: 'row', 
+    },
+    myMessageBubble: {
+        backgroundColor: '#007AFF',
+        borderBottomRightRadius: 4,
+    },
+    theirMessageBubble: {
+        backgroundColor: '#fff',
+        borderBottomLeftRadius: 4,
+    },
+    senderName: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#666',
+        marginBottom: 4,
+    },
+    messageText: {
+        fontSize: 16,
+        lineHeight: 20,
+    },
+    myMessageText: {
+        color: '#fff',
+    },
+    theirMessageText: {
+        color: '#333',
+    },
+    messageTime: {
+        fontSize: 11,
+        marginTop: 4,
+    },
+    myMessageTime: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        textAlign: 'right',
+    },
+    theirMessageTime: {
+        color: '#999',
+    },
+    // Payment message styles
+    paymentMessageContainer: {
+        marginBottom: 16,
+        alignItems: 'center',
+    },
+    paymentCard: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 16,
+        width: '90%',
+        borderWidth: 2,
+        borderColor: '#007AFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    paymentHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    paymentTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#333',
+    },
+    paymentStatusBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        backgroundColor: '#FFF3E0',
+    },
+    paymentStatusPaid: {
+        backgroundColor: '#E8F5E9',
+    },
+    paymentStatusDeclined: {
+        backgroundColor: '#FFEBEE',
+    },
+    paymentStatusCancelled: {
+        backgroundColor: '#F5F5F5',
+    },
+    paymentStatusText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#FF9800',
+    },
+    paymentAmount: {
+        fontSize: 32,
+        fontWeight: 'bold',
+        color: '#007AFF',
+        marginBottom: 8,
+    },
+    paymentDescription: {
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 8,
+    },
+    paymentFrom: {
+        fontSize: 12,
+        color: '#999',
+        marginBottom: 12,
+    },
+    paymentActions: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 8,
+    },
+    paymentButton: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 8,
+        alignItems: 'center',
+    },
+    payButton: {
+        backgroundColor: '#4CAF50',
+    },
+    payButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    declineButton: {
+        backgroundColor: '#f0f0f0',
+    },
+    declineButtonText: {
+        color: '#666',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    cancelButton: {
+        backgroundColor: '#f0f0f0',
+        marginBottom: 8,
+    },
+    cancelButtonText: {
+        color: '#666',
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    paymentTime: {
+        fontSize: 11,
+        color: '#999',
+        textAlign: 'center',
+    },
+    inputContainer: {
+        flexDirection: 'row',
+        padding: 12,
+        backgroundColor: '#fff',
+        borderTopWidth: 1,
+        borderTopColor: '#e0e0e0',
+        alignItems: 'flex-end',
+    },
+    input: {
+        flex: 1,
+        backgroundColor: '#f5f5f5',
+        borderRadius: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        marginRight: 8,
+        fontSize: 16,
+        maxHeight: 100,
+        color: '#333',
+    },
+    paymentIconButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#4CAF50',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 8,
+    },
+    paymentIconText: {
+        fontSize: 20,
+    },
+    sendButton: {
+        backgroundColor: '#007AFF',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        minWidth: 70,
+    },
+    meetupButton: {
+        backgroundColor: '#34C759',
+        marginLeft: 8,
+    },
+    sendButtonDisabled: {
+        backgroundColor: '#ccc',
+    },
+    sendButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+        fontSize: 16,
+    },
+    // Modal styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingBottom: 40,
+    },
+    modalHeader: {
+        flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 10 
     },
