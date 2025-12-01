@@ -54,7 +54,6 @@ export default function ChatListScreen() {
         useCallback(() => {
             if (!user) return;
 
-            // FIX: Removed 'orderBy' from the query to prevent "Missing Index" errors.
             // We will sort the results manually in the code below.
             const q = query(
                 collection(db, 'conversations'),
