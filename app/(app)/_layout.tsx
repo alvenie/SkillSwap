@@ -42,6 +42,16 @@ export default function TabLayout() {
                 }}
             />
 
+            {/* calendar screen - schedule and manage meetings */}
+            <Tabs.Screen
+                name="calendar"
+                options={{
+                    title: 'Calendar',
+                    tabBarLabel: 'Calendar',
+                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📅</Text>,
+                }}
+            />
+
             {/* chat list - all conversations */}
             <Tabs.Screen
                 name="chat-list"

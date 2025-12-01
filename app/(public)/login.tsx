@@ -1,47 +1,39 @@
-// ==========================================
-// LOGIN SCREEN COMPONENT
-// ==========================================
-// This is the authentication entry point for existing users.
-// Handles Firebase email/password login and automatically updates
-// user presence status in Firestore upon successful login.
-
 import { Link } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { setDoc, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useState } from 'react';
-import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../firebaseConfig';
 
-export default function Login() {
-    // ==========================================
-    // STATE MANAGEMENT
-    // ==========================================
+// Theme Configuration
+const COLORS = {
+    primaryBrand: '#FCD34D', // Mustard Yellow
+    primaryBrandText: '#1F2937', // Dark Gray
+    background: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    inputBg: '#F9FAFB',
+    border: '#E5E7EB',
+};
 
-    // User input fields
+export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-
-    // Loading state - prevents multiple login attempts while processing
     const [loading, setLoading] = useState(false);
 
-    // ==========================================
-    // FUNCTION: Handle Login Process
-    // ==========================================
-    /**
-     * CRITICAL: Main authentication flow
-     *
-     * This function does three important things:
-     * 1. Authenticates user with Firebase Auth
-     * 2. Creates or updates user document in Firestore
-     * 3. Sets user status to 'online' for real-time presence
-     *
-     * The user document management is crucial for the video chat feature
-     * to work properly - it ensures all users have the required fields
-     * for presence tracking and friend management.
-     */
     const handleLogin = async () => {
-        // Basic validation - ensure both fields are filled
         if (!email || !password) {
             Alert.alert('Error', 'Please enter both email and password.');
             return;
@@ -50,146 +42,204 @@ export default function Login() {
         setLoading(true);
 
         try {
-            // STEP 1: Authenticate with Firebase Auth
-            // This returns user credentials if login is successful
+            // 1. Authenticate
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
-            // STEP 2: IMPORTANT - Manage user document in Firestore
-            // We need to ensure the user has a proper document with all required fields
+            // 2. Update/Create User Document
             const userRef = doc(db, 'users', userCredential.user.uid);
             const userDoc = await getDoc(userRef);
 
             if (!userDoc.exists()) {
-                // CRITICAL: First-time login or missing user document
-                // Create a complete user document with all required fields
-                // This ensures compatibility with other features (video chat, friends, etc.)
                 await setDoc(userRef, {
-                    uid: userCredential.user.uid,                    // Firebase user ID
-                    email: userCredential.user.email,                // User's email
-                    displayName: userCredential.user.email || 'User', // Default display name
-                    status: 'online',                                // Set as online immediately
-                    lastSeen: new Date().toISOString(),             // Current timestamp
-                    friendCount: 0,                                  // Initialize friend counter
-                    skillsTeaching: [],                              // Empty skills array
-                    skillsLearning: [],                              // Empty skills array
-                    createdAt: new Date().toISOString(),            // Account creation time
+                    uid: userCredential.user.uid,
+                    email: userCredential.user.email,
+                    displayName: userCredential.user.email?.split('@')[0] || 'User',
+                    status: 'online',
+                    lastSeen: new Date().toISOString(),
+                    friendCount: 0,
+                    skillsTeaching: [],
+                    skillsLearning: [],
+                    createdAt: new Date().toISOString(),
                 });
             } else {
-                // IMPORTANT: User document exists - update status and ensure all fields present
-                // We use merge: true to only update specific fields without overwriting the entire document
                 const updateData: any = {
-                    status: 'online',                    // Mark user as online
-                    lastSeen: new Date().toISOString(), // Update last activity timestamp
+                    status: 'online',
+                    lastSeen: new Date().toISOString(),
                 };
-
-                // IMPORTANT: Backwards compatibility check
-                // Add friendCount field if it doesn't exist (for users created before this field was added)
-                // This prevents errors in components that expect this field to exist
-                const userData = userDoc.data();
-                if (userData.friendCount === undefined) {
+                
+                // Backwards compatibility check
+                if (userDoc.data().friendCount === undefined) {
                     updateData.friendCount = 0;
                 }
 
-                // Merge update - only changes specified fields
                 await setDoc(userRef, updateData, { merge: true });
             }
 
-            // Success! The AuthContext will detect the auth state change
-            // and automatically navigate the user to the main app
-
         } catch (error: any) {
-            // Handle login errors (wrong password, user not found, network issues, etc.)
             Alert.alert('Login Failed', error.message);
         } finally {
-            // Always reset loading state, whether success or failure
             setLoading(false);
         }
     };
 
-    // ==========================================
-    // RENDER: Login Form UI
-    // ==========================================
     return (
         <SafeAreaView style={styles.container}>
-            <View style={styles.content}>
-                {/* Welcome header */}
-                <Text style={styles.title}>Welcome!</Text>
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.keyboardView}
+            >
+                <View style={styles.content}>
+                    
+                    {/* Logo Section */}
+                    <View style={styles.headerContainer}>
+                        <Image 
+                            source={require('../../assets/images/SkillSwap.png')} 
+                            style={styles.logo}
+                            resizeMode="contain"
+                        />
+                        <Text style={styles.appName}>SkillSwap</Text>
+                        <Text style={styles.subtitle}>Welcome back!</Text>
+                    </View>
 
-                {/* Email input field */}
-                <TextInput
-                    style={styles.input}
-                    placeholder="Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    autoCapitalize="none"          // Prevent auto-capitalization for emails
-                    keyboardType="email-address"   // Show email keyboard on mobile
-                />
+                    {/* Form Section */}
+                    <View style={styles.formContainer}>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Email</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="name@example.com"
+                                placeholderTextColor={COLORS.textSecondary}
+                                value={email}
+                                onChangeText={setEmail}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                            />
+                        </View>
 
-                {/* Password input field */}
-                <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry                // Hide password characters
-                />
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Password</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Enter your password"
+                                placeholderTextColor={COLORS.textSecondary}
+                                value={password}
+                                onChangeText={setPassword}
+                                secureTextEntry
+                            />
+                        </View>
 
-                {/* Login button - disabled during loading to prevent double submission */}
-                <Button
-                    title={loading ? 'Logging in...' : 'Login'}
-                    onPress={handleLogin}
-                    disabled={loading}
-                />
+                        <TouchableOpacity 
+                            style={styles.loginButton} 
+                            onPress={handleLogin}
+                            disabled={loading}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color={COLORS.primaryBrandText} />
+                            ) : (
+                                <Text style={styles.loginButtonText}>Login</Text>
+                            )}
+                        </TouchableOpacity>
 
-                {/* Link to signup screen for new users */}
-                <Link href="/(public)/signup" style={styles.link}>
-                    Create an account
-                </Link>
-            </View>
+                        <View style={styles.footer}>
+                            <Text style={styles.footerText}>Don't have an account? </Text>
+                            <Link href="/(public)/signup" asChild>
+                                <TouchableOpacity>
+                                    <Text style={styles.linkText}>Sign up</Text>
+                                </TouchableOpacity>
+                            </Link>
+                        </View>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
 
-// ==========================================
-// STYLES
-// ==========================================
-// Simple, clean styling for the login form
-// Centered layout with standard form elements
 const styles = StyleSheet.create({
-    // Main container - fills entire screen
     container: {
         flex: 1,
+        backgroundColor: COLORS.background,
     },
-
-    // Content wrapper - centers form vertically
+    keyboardView: {
+        flex: 1,
+    },
     content: {
         flex: 1,
         justifyContent: 'center',
-        padding: 16,
+        padding: 24,
     },
-
-    // Welcome title
-    title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        marginBottom: 24,
+    headerContainer: {
+        alignItems: 'center',
+        marginBottom: 40,
     },
-
-    // Input field styling (email and password)
+    logo: {
+        width: 80,
+        height: 80,
+        marginBottom: 16,
+    },
+    appName: {
+        fontSize: 28,
+        fontWeight: '800',
+        color: COLORS.textPrimary,
+        marginBottom: 8,
+    },
+    subtitle: {
+        fontSize: 16,
+        color: COLORS.textSecondary,
+    },
+    formContainer: {
+        width: '100%',
+    },
+    inputGroup: {
+        marginBottom: 20,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
+        marginBottom: 8,
+    },
     input: {
-        height: 40,
-        borderColor: 'gray',
+        backgroundColor: COLORS.inputBg,
         borderWidth: 1,
-        borderRadius: 8,
-        marginBottom: 12,
-        paddingHorizontal: 8,
+        borderColor: COLORS.border,
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        fontSize: 16,
+        color: COLORS.textPrimary,
     },
-
-    // Signup link styling
-    link: {
-        marginTop: 16,
-        textAlign: 'center',
-        color: 'blue',
+    loginButton: {
+        backgroundColor: COLORS.primaryBrand,
+        borderRadius: 12,
+        paddingVertical: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 10,
+        marginBottom: 24,
+        shadowColor: COLORS.primaryBrand,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    loginButtonText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
+    },
+    footer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    footerText: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+    },
+    linkText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: COLORS.textPrimary, 
     },
 });

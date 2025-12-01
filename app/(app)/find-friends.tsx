@@ -1,30 +1,52 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
+    addDoc,
+    collection,
+    doc,
+    DocumentData,
+    endAt,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    QueryDocumentSnapshot,
+    startAfter,
+    startAt,
+    where
+} from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
     ActivityIndicator,
-    TextInput,
+    Alert,
+    FlatList,
     Modal,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import {
-    collection,
-    query,
-    where,
-    getDocs,
-    addDoc,
-    doc,
-    getDoc,
-} from 'firebase/firestore';
-import { useRouter } from 'expo-router';
 
-// user profile structure for discovery
+// --- Theme Configuration ---
+const COLORS = {
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
+    background: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    lightGray: '#F9FAFB',
+    accentGreen: '#10B981',
+    accentOrange: '#F59E0B',
+};
+
+// User profile structure
 interface UserProfile {
     uid: string;
     email: string;
@@ -32,82 +54,157 @@ interface UserProfile {
     bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    location?: string;
+    location?: any;
     status: 'online' | 'offline' | 'in-call';
 }
 
-// screen for discovering and adding new friends
 export default function FindFriendsScreen() {
     const { user } = useAuth();
     const router = useRouter();
 
-    // user list state
+    // Data State
     const [users, setUsers] = useState<UserProfile[]>([]);
-    const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false); // for infinite scroll spinner
+    const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null); // Cursor for pagination
+    const [hasMore, setHasMore] = useState(true); // Stop fetching if no more data
     const [searchText, setSearchText] = useState('');
 
-    // friend request state
+    // Request State
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
 
-    // tracking sent requests and existing friends
+    // Tracking
     const [sentRequests, setSentRequests] = useState<string[]>([]);
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
-    // load all data when component mounts
     useEffect(() => {
-        loadUsers();
+        loadUsers(false); // Initial Load
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
-    // fetch all users except current user
-    const loadUsers = async () => {
-        try {
-            setLoading(true);
-            const usersRef = collection(db, 'users');
-            const querySnapshot = await getDocs(usersRef);
+    // New: Consolidated Load Function with Pagination
+    const loadUsers = async (loadMore: boolean = false) => {
+        // Prevent duplicate calls
+        if (loadMore && (loadingMore || !hasMore)) return;
 
-            const usersData: UserProfile[] = [];
-            querySnapshot.forEach((doc) => {
-                // exclude current user from results
-                if (doc.id !== user?.uid) {
-                    const data = doc.data();
-                    usersData.push({
-                        uid: doc.id,
+        try {
+            if (loadMore) {
+                setLoadingMore(true);
+            } else {
+                setLoading(true);
+            }
+
+            const usersRef = collection(db, 'users');
+            const PAGE_SIZE = 10;
+
+            let q;
+
+            // Search Logic (Server-side Prefix Search)
+            if (searchText.trim()) {
+                // If searching, we reset pagination rules slightly or stick to name ordering
+                // Note: Firestore is case-sensitive. "alex" won't find "Alex".
+                // For a real app, store a 'searchName' field in lowercase.
+                // Here we assume exact case match for simplicity or Capitalized.
+                const term = searchText.trim();
+                
+                if (loadMore && lastDoc) {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        startAt(term),
+                        endAt(term + '\uf8ff'),
+                        startAfter(lastDoc),
+                        limit(PAGE_SIZE)
+                    );
+                } else {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        startAt(term),
+                        endAt(term + '\uf8ff'),
+                        limit(PAGE_SIZE)
+                    );
+                }
+            } else {
+                // Default Logic (Browse All)
+                if (loadMore && lastDoc) {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'), // Ensure you have this field, or use 'email'
+                        startAfter(lastDoc),
+                        limit(PAGE_SIZE)
+                    );
+                } else {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        limit(PAGE_SIZE)
+                    );
+                }
+            }
+
+            const querySnapshot = await getDocs(q);
+            
+            // Check if we hit the end
+            if (querySnapshot.docs.length < PAGE_SIZE) {
+                setHasMore(false);
+            } else {
+                setHasMore(true);
+            }
+
+            // Update Cursor
+            if (querySnapshot.docs.length > 0) {
+                setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+            }
+
+            const newUsers: UserProfile[] = [];
+            querySnapshot.forEach((docSnap) => {
+                if (docSnap.id !== user?.uid) {
+                    const data = docSnap.data();
+                    newUsers.push({
+                        uid: docSnap.id,
                         email: data.email || '',
                         displayName: data.displayName || data.email || 'User',
                         bio: data.bio || '',
                         skillsTeaching: data.skillsTeaching || [],
                         skillsLearning: data.skillsLearning || [],
-                        location: data.location || '',
+                        location: data.location || null,
                         status: data.status || 'offline',
                     });
                 }
             });
 
-            setUsers(usersData);
-            setFilteredUsers(usersData);
+            if (loadMore) {
+                // Append unique users
+                setUsers(prev => {
+                    const existingIds = new Set(prev.map(u => u.uid));
+                    const uniqueNew = newUsers.filter(u => !existingIds.has(u.uid));
+                    return [...prev, ...uniqueNew];
+                });
+            } else {
+                setUsers(newUsers);
+            }
+
         } catch (error: any) {
             console.error('Error loading users:', error);
-            Alert.alert('Error', 'Failed to load users');
+            // Alert.alert('Error', 'Failed to load users'); 
+            // Suppress alert on empty search results or permission errors
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     };
 
-    // load pending friend requests we've sent
     const loadSentRequests = async () => {
         if (!user) return;
-
         try {
             const requestsRef = collection(db, 'friendRequests');
             const q = query(requestsRef, where('fromUserId', '==', user.uid));
             const querySnapshot = await getDocs(q);
-
             const sentRequestIds: string[] = [];
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
@@ -115,75 +212,60 @@ export default function FindFriendsScreen() {
                     sentRequestIds.push(data.toUserId);
                 }
             });
-
             setSentRequests(sentRequestIds);
         } catch (error) {
-            console.error('Error loading sent requests:', error);
+            console.error('Error loading requests:', error);
         }
     };
 
-    // load existing friends list
     const loadExistingFriends = async () => {
         if (!user) return;
-
         try {
             const friendsRef = collection(db, 'friends');
             const q = query(friendsRef, where('userId', '==', user.uid));
             const querySnapshot = await getDocs(q);
-
             const friendIds: string[] = [];
             querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                friendIds.push(data.friendId);
+                friendIds.push(doc.data().friendId);
             });
-
             setExistingFriends(friendIds);
         } catch (error) {
             console.error('Error loading friends:', error);
         }
     };
 
-    // filter users based on search text - searches name, email, bio, and skills
+    // Modified to trigger new search on text change
     const handleSearch = (text: string) => {
         setSearchText(text);
-        if (text.trim() === '') {
-            setFilteredUsers(users);
-        } else {
-            const filtered = users.filter(
-                (u) =>
-                    u.displayName.toLowerCase().includes(text.toLowerCase()) ||
-                    u.email.toLowerCase().includes(text.toLowerCase()) ||
-                    u.bio?.toLowerCase().includes(text.toLowerCase()) ||
-                    u.skillsTeaching.some((skill) =>
-                        skill.toLowerCase().includes(text.toLowerCase())
-                    ) ||
-                    u.skillsLearning.some((skill) =>
-                        skill.toLowerCase().includes(text.toLowerCase())
-                    )
-            );
-            setFilteredUsers(filtered);
-        }
+        // Reset and reload logic is handled by useEffect or manual trigger
+        // Here we can rely on a debounce or just call it directly for simplicity
+        // But since we are calling state setter, we need to wait for state. 
+        // Better: Pass the text directly to a helper or useEffect.
     };
+    
+    // Trigger search when text changes (with debounce ideally, but simplified here)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setLastDoc(null); // Reset cursor
+            setHasMore(true);
+            loadUsers(false); // Load fresh
+        }, 500); // 500ms debounce
+        return () => clearTimeout(timer);
+    }, [searchText]);
 
-    // open modal to send friend request
     const openRequestModal = (targetUser: UserProfile) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
     };
 
-    // send friend request to selected user
     const sendFriendRequest = async () => {
         if (!user || !selectedUser) return;
-
         try {
             setSending(true);
-
-            // get current user's profile info
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
 
-            // create friend request document
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: user.uid,
                 fromUserName: currentUserData?.displayName || user.email || 'User',
@@ -196,127 +278,88 @@ export default function FindFriendsScreen() {
                 createdAt: new Date().toISOString(),
             });
 
-            Alert.alert(
-                'Request Sent! 🎉',
-                `Friend request sent to ${selectedUser.displayName}`,
-                [{ text: 'OK' }]
-            );
-
+            Alert.alert('Success', `Friend request sent to ${selectedUser.displayName}`);
             setShowRequestModal(false);
             setSentRequests([...sentRequests, selectedUser.uid]);
         } catch (error: any) {
-            console.error('Error sending friend request:', error);
-            Alert.alert('Error', 'Failed to send friend request. Please try again.');
+            Alert.alert('Error', 'Failed to send friend request');
         } finally {
             setSending(false);
         }
     };
 
-    // helper to find skill matches between users - currently not implemented
-    const getSkillMatches = (targetUser: UserProfile) => {
-        if (!user) return { canTeach: [], wantsToLearn: [] };
+    const renderUserCard = ({ item }: { item: UserProfile }) => {
+        const isFriend = existingFriends.includes(item.uid);
+        const requestSent = sentRequests.includes(item.uid);
+        const isOnline = item.status === 'online';
 
-        // would compare current user's skills with target user's needs
-        const canTeach = targetUser.skillsLearning.filter((skill) =>
-            false // placeholder logic
-        );
-
-        const wantsToLearn = targetUser.skillsTeaching.filter((skill) =>
-            false // placeholder logic
-        );
-
-        return { canTeach, wantsToLearn };
-    };
-
-    // render individual user card
-    const renderUserCard = (targetUser: UserProfile) => {
-        const isFriend = existingFriends.includes(targetUser.uid);
-        const requestSent = sentRequests.includes(targetUser.uid);
-        const isOnline = targetUser.status === 'online';
+        let locationText = null;
+        if (item.location) {
+            if (typeof item.location === 'string') {
+                locationText = item.location;
+            } else if (typeof item.location === 'object') {
+                locationText = "Location Shared";
+            }
+        }
 
         return (
-            <View key={targetUser.uid} style={styles.userCard}>
-                {/* user header with avatar and info */}
+            <View style={styles.userCard}>
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
                             <Text style={styles.avatarText}>
-                                {targetUser.displayName.charAt(0).toUpperCase()}
+                                {item.displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
-                        {/* online status indicator */}
-                        <View
-                            style={[
-                                styles.statusBadge,
-                                { backgroundColor: isOnline ? '#4CAF50' : '#ccc' },
-                            ]}
-                        />
+                        {isOnline && <View style={styles.onlineBadge} />}
                     </View>
                     <View style={styles.userInfo}>
-                        <Text style={styles.userName}>{targetUser.displayName}</Text>
-                        {targetUser.location && (
-                            <Text style={styles.location}>📍 {targetUser.location}</Text>
+                        <Text style={styles.userName}>{item.displayName}</Text>
+                        {locationText && (
+                            <Text style={styles.location}>📍 {locationText}</Text>
                         )}
-                        {targetUser.bio && (
+                        {item.bio && (
                             <Text style={styles.bio} numberOfLines={2}>
-                                {targetUser.bio}
+                                {item.bio}
                             </Text>
                         )}
                     </View>
                 </View>
 
-                {/* skills they can teach */}
-                {targetUser.skillsTeaching.length > 0 && (
-                    <View style={styles.skillsSection}>
-                        <Text style={styles.skillsLabel}>🎓 Can teach:</Text>
-                        <View style={styles.skillsContainer}>
-                            {targetUser.skillsTeaching.slice(0, 3).map((skill, index) => (
-                                <View key={index} style={[styles.skillChip, styles.teachingChip]}>
-                                    <Text style={styles.skillChipText}>{skill}</Text>
-                                </View>
-                            ))}
-                            {targetUser.skillsTeaching.length > 3 && (
-                                <Text style={styles.moreSkills}>
-                                    +{targetUser.skillsTeaching.length - 3} more
-                                </Text>
-                            )}
+                <View style={styles.skillsRow}>
+                    {item.skillsTeaching.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Teaches:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {item.skillsTeaching.join(', ')}
+                            </Text>
                         </View>
-                    </View>
-                )}
-
-                {/* skills they want to learn */}
-                {targetUser.skillsLearning.length > 0 && (
-                    <View style={styles.skillsSection}>
-                        <Text style={styles.skillsLabel}>📚 Wants to learn:</Text>
-                        <View style={styles.skillsContainer}>
-                            {targetUser.skillsLearning.slice(0, 3).map((skill, index) => (
-                                <View key={index} style={[styles.skillChip, styles.learningChip]}>
-                                    <Text style={styles.skillChipText}>{skill}</Text>
-                                </View>
-                            ))}
-                            {targetUser.skillsLearning.length > 3 && (
-                                <Text style={styles.moreSkills}>
-                                    +{targetUser.skillsLearning.length - 3} more
-                                </Text>
-                            )}
+                    )}
+                    {item.skillsLearning.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Learns:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {item.skillsLearning.join(', ')}
+                            </Text>
                         </View>
-                    </View>
-                )}
+                    )}
+                </View>
 
-                {/* action button showing connection status */}
                 <View style={styles.actionContainer}>
                     {isFriend ? (
-                        <View style={styles.friendBadge}>
-                            <Text style={styles.friendBadgeText}>✓ Friends</Text>
+                        <View style={styles.statusContainer}>
+                            <Ionicons name="checkmark-circle" size={18} color={COLORS.accentGreen} />
+                            <Text style={[styles.statusText, { color: COLORS.accentGreen }]}>Friends</Text>
                         </View>
                     ) : requestSent ? (
-                        <View style={styles.pendingBadge}>
-                            <Text style={styles.pendingBadgeText}>⏳ Request Sent</Text>
+                        <View style={styles.statusContainer}>
+                            <Ionicons name="time" size={18} color={COLORS.accentOrange} />
+                            <Text style={[styles.statusText, { color: COLORS.accentOrange }]}>Request Sent</Text>
                         </View>
                     ) : (
                         <TouchableOpacity
                             style={styles.addFriendButton}
-                            onPress={() => openRequestModal(targetUser)}
+                            onPress={() => openRequestModal(item)}
                         >
                             <Text style={styles.addFriendButtonText}>+ Add Friend</Text>
                         </TouchableOpacity>
@@ -326,71 +369,77 @@ export default function FindFriendsScreen() {
         );
     };
 
-    // show loading spinner while fetching users
-    if (loading) {
+    const renderFooter = () => {
+        if (!loadingMore) return <View style={styles.bottomSpacer} />;
         return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
-                </View>
-            </SafeAreaView>
+            <View style={{ paddingVertical: 20 }}>
+                <ActivityIndicator size="small" color={COLORS.primaryBrand} />
+            </View>
         );
-    }
+    };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* header with back button */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <Text style={styles.backButtonText}>←</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.title}>Find Friends</Text>
-                    <View style={{ width: 40 }} />
-                </View>
+        <SafeAreaView style={styles.container} edges={['top']}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+                <Text style={styles.title}>Find Friends</Text>
+                <View style={{ width: 40 }} />
+            </View>
 
-                {/* search bar */}
-                <View style={styles.searchContainer}>
+            <View style={styles.searchContainer}>
+                <View style={styles.searchBox}>
+                    <Ionicons name="search" size={20} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
                     <TextInput
-                        style={styles.searchBox}
-                        placeholder="Search by name, skills, or bio..."
+                        style={styles.input}
+                        placeholder="Search by name..."
                         value={searchText}
                         onChangeText={handleSearch}
-                        placeholderTextColor="#999"
+                        placeholderTextColor={COLORS.textSecondary}
                     />
                 </View>
+            </View>
 
-                {/* result count */}
-                <Text style={styles.resultCount}>
-                    {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'} found
-                </Text>
+            {loading && !loadingMore ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
+                </View>
+            ) : (
+                <FlatList
+                    data={users}
+                    renderItem={renderUserCard}
+                    keyExtractor={(item) => item.uid}
+                    contentContainerStyle={styles.listContent}
+                    onEndReached={() => {
+                        if (hasMore && !loadingMore && !loading) {
+                            loadUsers(true);
+                        }
+                    }}
+                    onEndReachedThreshold={0.5}
+                    ListFooterComponent={renderFooter}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="people-outline" size={64} color={COLORS.border} />
+                            <Text style={styles.emptyText}>No users found</Text>
+                        </View>
+                    }
+                />
+            )}
 
-                {/* user list or empty state */}
-                {filteredUsers.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyText}>No users found</Text>
-                    </View>
-                ) : (
-                    filteredUsers.map(renderUserCard)
-                )}
-
-                <View style={styles.bottomSpacer} />
-            </ScrollView>
-
-            {/* modal for sending friend request with optional message */}
+            {/* Modal */}
             <Modal visible={showRequestModal} animationType="slide" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Send Friend Request</Text>
                             <TouchableOpacity onPress={() => setShowRequestModal(false)}>
-                                <Text style={styles.modalCloseText}>✕</Text>
+                                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         </View>
 
                         {selectedUser && (
                             <View style={styles.modalBody}>
-                                {/* selected user info */}
                                 <View style={styles.modalUserInfo}>
                                     <View style={styles.modalAvatar}>
                                         <Text style={styles.modalAvatarText}>
@@ -398,32 +447,22 @@ export default function FindFriendsScreen() {
                                         </Text>
                                     </View>
                                     <View>
-                                        <Text style={styles.modalUserName}>
-                                            {selectedUser.displayName}
-                                        </Text>
-                                        <Text style={styles.modalUserEmail}>
-                                            {selectedUser.email}
-                                        </Text>
+                                        <Text style={styles.modalUserName}>{selectedUser.displayName}</Text>
+                                        <Text style={styles.modalUserEmail}>{selectedUser.email}</Text>
                                     </View>
                                 </View>
 
-                                {/* optional message input */}
-                                <View style={styles.messageSection}>
-                                    <Text style={styles.messageLabel}>
-                                        Add a message (optional)
-                                    </Text>
-                                    <TextInput
-                                        style={styles.messageInput}
-                                        placeholder="Hi! I'd like to connect and exchange skills..."
-                                        value={requestMessage}
-                                        onChangeText={setRequestMessage}
-                                        multiline
-                                        numberOfLines={4}
-                                        placeholderTextColor="#999"
-                                    />
-                                </View>
+                                <Text style={styles.messageLabel}>Add a message (optional)</Text>
+                                <TextInput
+                                    style={styles.messageInput}
+                                    placeholder="Hi! I'd like to connect..."
+                                    value={requestMessage}
+                                    onChangeText={setRequestMessage}
+                                    multiline
+                                    numberOfLines={3}
+                                    placeholderTextColor={COLORS.textSecondary}
+                                />
 
-                                {/* modal action buttons */}
                                 <View style={styles.modalButtons}>
                                     <TouchableOpacity
                                         style={[styles.modalButton, styles.cancelButton]}
@@ -432,16 +471,12 @@ export default function FindFriendsScreen() {
                                         <Text style={styles.cancelButtonText}>Cancel</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity
-                                        style={[
-                                            styles.modalButton,
-                                            styles.sendButton,
-                                            sending && styles.disabledButton,
-                                        ]}
+                                        style={[styles.modalButton, styles.sendButton]}
                                         onPress={sendFriendRequest}
                                         disabled={sending}
                                     >
                                         {sending ? (
-                                            <ActivityIndicator color="#fff" />
+                                            <ActivityIndicator color={COLORS.primaryBrandText} />
                                         ) : (
                                             <Text style={styles.sendButtonText}>Send Request</Text>
                                         )}
@@ -459,219 +494,193 @@ export default function FindFriendsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: COLORS.background,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    content: {
-        flex: 1,
+    listContent: {
+        paddingBottom: 20,
     },
     header: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 20,
-        paddingTop: 10,
-        backgroundColor: '#fff',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: COLORS.background,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: COLORS.border,
     },
     backButton: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    backButtonText: {
-        fontSize: 28,
-        color: '#007AFF',
-        fontWeight: 'bold',
+        padding: 8,
     },
     title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#333',
+        fontSize: 18,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
     },
     searchContainer: {
-        padding: 20,
-        paddingTop: 16,
+        padding: 16,
         paddingBottom: 8,
-        backgroundColor: '#fff',
     },
     searchBox: {
-        backgroundColor: '#f0f0f0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.lightGray,
         borderRadius: 12,
-        padding: 12,
-        fontSize: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
         borderWidth: 1,
-        borderColor: '#ddd',
-        color: '#333',
+        borderColor: COLORS.border,
     },
-    resultCount: {
-        fontSize: 14,
-        color: '#666',
-        paddingHorizontal: 20,
-        marginBottom: 12,
+    input: {
+        flex: 1,
+        fontSize: 15,
+        color: COLORS.textPrimary,
     },
+    emptyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 60,
+    },
+    emptyText: {
+        marginTop: 16,
+        fontSize: 16,
+        color: COLORS.textSecondary,
+    },
+    // User Card
     userCard: {
-        backgroundColor: '#fff',
+        backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
         padding: 16,
-        marginHorizontal: 20,
-        marginBottom: 16,
+        marginHorizontal: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: COLORS.border,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     userHeader: {
         flexDirection: 'row',
         marginBottom: 12,
     },
     avatarContainer: {
-        position: 'relative',
         marginRight: 12,
+        position: 'relative',
     },
     avatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: '#007AFF',
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
     },
     avatarText: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
-    statusBadge: {
+    onlineBadge: {
         position: 'absolute',
-        bottom: 2,
-        right: 2,
-        width: 14,
-        height: 14,
-        borderRadius: 7,
+        bottom: 0,
+        right: 0,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: COLORS.accentGreen,
         borderWidth: 2,
-        borderColor: '#fff',
+        borderColor: COLORS.cardBackground,
     },
     userInfo: {
         flex: 1,
+        justifyContent: 'center',
     },
     userName: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 4,
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
     },
     location: {
-        fontSize: 13,
-        color: '#666',
-        marginBottom: 6,
+        fontSize: 12,
+        color: COLORS.textSecondary,
+        marginBottom: 4,
     },
     bio: {
-        fontSize: 14,
-        color: '#666',
+        fontSize: 13,
+        color: COLORS.textSecondary,
         lineHeight: 18,
     },
-    skillsSection: {
-        marginTop: 12,
-    },
-    skillsLabel: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#666',
-        marginBottom: 8,
-    },
-    skillsContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 6,
-    },
-    skillChip: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-    },
-    teachingChip: {
-        backgroundColor: '#E3F2FD',
-    },
-    learningChip: {
-        backgroundColor: '#FFF3E0',
-    },
-    skillChipText: {
-        fontSize: 12,
-        fontWeight: '500',
-        color: '#333',
-    },
-    moreSkills: {
-        fontSize: 12,
-        color: '#999',
-        alignSelf: 'center',
-        marginLeft: 4,
-    },
-    actionContainer: {
-        marginTop: 12,
-        paddingTop: 12,
+    // Skills
+    skillsRow: {
+        marginTop: 4,
+        paddingTop: 8,
         borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+        borderTopColor: COLORS.lightGray,
+        gap: 2,
+        marginBottom: 12,
+    },
+    skillGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    skillLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: COLORS.textSecondary,
+        width: 50,
+    },
+    skillList: {
+        flex: 1,
+        fontSize: 11,
+        color: COLORS.textPrimary,
+    },
+    // Actions
+    actionContainer: {
+        borderTopWidth: 1,
+        borderTopColor: COLORS.lightGray,
+        paddingTop: 12,
+        alignItems: 'center',
     },
     addFriendButton: {
-        backgroundColor: '#007AFF',
-        paddingVertical: 12,
+        backgroundColor: COLORS.primaryBrand,
+        width: '100%',
+        paddingVertical: 10,
         borderRadius: 8,
         alignItems: 'center',
     },
     addFriendButtonText: {
-        color: '#fff',
+        color: COLORS.primaryBrandText,
         fontWeight: '600',
-        fontSize: 15,
+        fontSize: 14,
     },
-    friendBadge: {
-        backgroundColor: '#E8F5E9',
-        paddingVertical: 12,
-        borderRadius: 8,
+    statusContainer: {
+        flexDirection: 'row',
         alignItems: 'center',
+        gap: 6,
     },
-    friendBadgeText: {
-        color: '#4CAF50',
+    statusText: {
+        fontSize: 14,
         fontWeight: '600',
-        fontSize: 15,
-    },
-    pendingBadge: {
-        backgroundColor: '#FFF3E0',
-        paddingVertical: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    pendingBadgeText: {
-        color: '#FF9800',
-        fontWeight: '600',
-        fontSize: 15,
-    },
-    emptyContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 40,
-    },
-    emptyText: {
-        fontSize: 16,
-        color: '#999',
     },
     bottomSpacer: {
         height: 40,
     },
+    // Modal
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: '#fff',
+        backgroundColor: COLORS.background,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         paddingBottom: 40,
@@ -682,17 +691,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: COLORS.border,
     },
     modalTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
-    },
-    modalCloseText: {
-        fontSize: 24,
-        color: '#666',
-        fontWeight: 'bold',
+        fontSize: 18,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
     },
     modalBody: {
         padding: 20,
@@ -703,48 +707,43 @@ const styles = StyleSheet.create({
         marginBottom: 20,
     },
     modalAvatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#007AFF',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
     },
     modalAvatarText: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
     modalUserName: {
-        fontSize: 16,
         fontWeight: '600',
-        color: '#333',
-        marginBottom: 2,
+        color: COLORS.textPrimary,
     },
     modalUserEmail: {
-        fontSize: 14,
-        color: '#666',
-    },
-    messageSection: {
-        marginBottom: 20,
+        fontSize: 12,
+        color: COLORS.textSecondary,
     },
     messageLabel: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#333',
+        color: COLORS.textPrimary,
         marginBottom: 8,
     },
     messageInput: {
-        backgroundColor: '#f5f5f5',
+        backgroundColor: COLORS.lightGray,
+        borderWidth: 1,
+        borderColor: COLORS.border,
         borderRadius: 8,
         padding: 12,
         fontSize: 14,
-        borderWidth: 1,
-        borderColor: '#ddd',
-        color: '#333',
+        color: COLORS.textPrimary,
+        height: 80,
         textAlignVertical: 'top',
-        minHeight: 80,
+        marginBottom: 20,
     },
     modalButtons: {
         flexDirection: 'row',
@@ -752,27 +751,22 @@ const styles = StyleSheet.create({
     },
     modalButton: {
         flex: 1,
-        paddingVertical: 14,
+        paddingVertical: 12,
         borderRadius: 8,
         alignItems: 'center',
     },
     cancelButton: {
-        backgroundColor: '#f0f0f0',
+        backgroundColor: COLORS.lightGray,
     },
     sendButton: {
-        backgroundColor: '#007AFF',
-    },
-    disabledButton: {
-        opacity: 0.6,
+        backgroundColor: COLORS.primaryBrand,
     },
     cancelButtonText: {
-        color: '#666',
+        color: COLORS.textSecondary,
         fontWeight: '600',
-        fontSize: 16,
     },
     sendButtonText: {
-        color: '#fff',
+        color: COLORS.primaryBrandText,
         fontWeight: '600',
-        fontSize: 16,
     },
 });
