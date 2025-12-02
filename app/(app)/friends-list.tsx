@@ -179,7 +179,7 @@ export default function FriendsListScreen() {
                                 await updateDoc(doc(db, 'users', friendId), { friendCount: Math.max(0, current - 1) });
                             }
 
-                            // DELETE CHAT HISTORY
+                            // delete chat history
                             const conversationsRef = collection(db, 'conversations');
                             const chatQuery = query(
                                 conversationsRef, 
