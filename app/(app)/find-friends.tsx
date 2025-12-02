@@ -29,9 +29,9 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import StarRating from '../../components/StarRating';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import StarRating from '../../components/StarRating';
 
 // --- Theme Configuration ---
 const COLORS = {
@@ -382,7 +382,7 @@ export default function FindFriendsScreen() {
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.title}>Find Friends</Text>

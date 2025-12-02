@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
@@ -10,16 +11,17 @@ import {
     RefreshControl,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import StarRating from '../../components/StarRating';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
-import StarRating from '../../components/StarRating';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
@@ -93,6 +95,13 @@ export default function SkillsScreen() {
     const [roleFilter, setRoleFilter] = useState<RoleFilterType>('All');
     const [showFilterModal, setShowFilterModal] = useState(false);
 
+    // Radius Filter State
+    const [useRadiusFilter, setUseRadiusFilter] = useState(false); // Default OFF (All)
+    const [radius, setRadius] = useState(10); // Default to 10km
+
+    // Location State
+    const [myLocation, setMyLocation] = useState<{latitude: number, longitude: number} | null>(null);
+    
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -109,6 +118,7 @@ export default function SkillsScreen() {
             loadUsers();
             loadSentRequests();
             loadExistingFriends();
+            fetchMyLocation();
         }, [])
     );
 
@@ -120,7 +130,23 @@ export default function SkillsScreen() {
 
     useEffect(() => {
         applyFilters();
-    }, [users, searchText, selectedSkill, roleFilter]);
+    }, [users, searchText, selectedSkill, roleFilter, radius, useRadiusFilter, myLocation]);
+
+    // Fetch Current User Location (Required for radius filter)
+    const fetchMyLocation = async () => {
+        if (!user) return;
+        try {
+            const docSnap = await getDoc(doc(db, 'users', user.uid));
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.location && typeof data.location === 'object' && data.location.latitude) {
+                    setMyLocation(data.location);
+                }
+            }
+        } catch (e) {
+            console.log("Error fetching my location", e);
+        }
+    };
 
     const loadUsers = async () => {
         try {
@@ -227,6 +253,20 @@ export default function SkillsScreen() {
                 u.skillsTeaching.some(s => s.toLowerCase().includes(lowerSearch)) ||
                 u.skillsLearning.some(s => s.toLowerCase().includes(lowerSearch))
             );
+        }
+
+        // Radius Filter Implementation
+        if (useRadiusFilter && myLocation) {
+            result = result.filter(u => {
+                // If user has no location, hide them if filter is ON
+                if (!u.location || typeof u.location !== 'object' || !u.location.latitude) return false;
+                
+                const dist = haversineDistance(
+                    { latitude: myLocation.latitude, longitude: myLocation.longitude },
+                    { latitude: u.location.latitude, longitude: u.location.longitude }
+                );
+                return dist <= radius;
+            });
         }
 
         setFilteredUsers(result);
@@ -527,8 +567,9 @@ export default function SkillsScreen() {
                                 <Ionicons name="close" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         </View>
-
-                        <Text style={styles.filterLabel}>Show users who:</Text>
+                        
+                        {/* Role Filter */}
+                        <Text style={styles.filterLabel}>Role</Text>
                         <View style={styles.roleOptionsContainer}>
                             {(['All', 'Teaches', 'Learns'] as RoleFilterType[]).map((role) => (
                                 <TouchableOpacity
@@ -544,11 +585,47 @@ export default function SkillsScreen() {
                             ))}
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.applyFilterButton}
+                        {/* Radius Filter Switch & Slider UI */}
+                        <View style={styles.switchRow}>
+                            <Text style={styles.filterLabel}>Filter by Distance</Text>
+                            <Switch 
+                                value={useRadiusFilter}
+                                onValueChange={setUseRadiusFilter}
+                                trackColor={{ false: '#767577', true: COLORS.primaryBrand }}
+                                thumbColor={useRadiusFilter ? '#fff' : '#f4f3f4'}
+                            />
+                        </View>
+
+                        {useRadiusFilter ? (
+                            <View style={styles.sliderContainer}>
+                                <Text style={styles.sliderValueText}>
+                                    Within {Math.round(radius)} km
+                                </Text>
+                                <Slider
+                                    style={{width: '100%', height: 40}}
+                                    minimumValue={1}
+                                    maximumValue={10} // Max 10km
+                                    step={1}
+                                    value={radius}
+                                    onValueChange={setRadius}
+                                    minimumTrackTintColor={COLORS.primaryBrand}
+                                    maximumTrackTintColor="#E5E7EB"
+                                    thumbTintColor={COLORS.primaryBrand}
+                                />
+                                <View style={styles.sliderLabels}>
+                                    <Text style={styles.sliderLabelText}>1 km</Text>
+                                    <Text style={styles.sliderLabelText}>10 km</Text>
+                                </View>
+                            </View>
+                        ) : (
+                            <Text style={styles.infoText}>Showing users from all locations.</Text>
+                        )}
+                        
+                        <TouchableOpacity 
+                            style={styles.applyFilterButton} 
                             onPress={() => setShowFilterModal(false)}
                         >
-                            <Text style={styles.applyFilterButtonText}>Done</Text>
+                            <Text style={styles.applyFilterButtonText}>Apply Filters</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -831,7 +908,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderRadius: 16,
         padding: 20,
-        maxHeight: '50%',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -921,4 +997,37 @@ const styles = StyleSheet.create({
         color: COLORS.primaryBrandText,
         fontSize: 16,
     },
+    // Switch Row
+    switchRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+        marginTop: 8,
+    },
+    // Slider
+    sliderContainer: {
+        marginBottom: 10,
+    },
+    sliderValueText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.primaryBrandText,
+        marginBottom: 8,
+    },
+    sliderLabels: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 4,
+    },
+    sliderLabelText: {
+        fontSize: 12,
+        color: COLORS.textSecondary,
+    },
+    infoText: {
+        fontSize: 13,
+        color: COLORS.textSecondary,
+        fontStyle: 'italic',
+        marginBottom: 10,
+    }
 });
