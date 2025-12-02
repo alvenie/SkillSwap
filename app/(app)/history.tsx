@@ -1,22 +1,37 @@
-import { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
+import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import React, { useCallback, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
     ActivityIndicator,
     Alert,
     RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
 
-// payment transaction record structure
+// Theme (Matched)
+const COLORS = {
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
+    background: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    lightGray: '#F9FAFB',
+    accentGreen: '#10B981',
+    accentRed: '#EF4444',
+};
+
+// Interface
 interface PaymentHistory {
     id: string;
     skillName: string;
@@ -30,74 +45,37 @@ interface PaymentHistory {
     instructorFee?: number;
 }
 
-// screen showing user's past payment transactions
 export default function PaymentHistoryScreen() {
     const { user } = useAuth();
+    const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [history, setHistory] = useState<PaymentHistory[]>([]);
 
-    // reload history when screen comes into focus
     useFocusEffect(
         useCallback(() => {
             loadPaymentHistory();
         }, [])
     );
 
-    useEffect(() => {
-        loadPaymentHistory();
-    }, []);
-
-    // fetch payment history from firestore
     const loadPaymentHistory = async () => {
-        if (!user) {
-            setLoading(false);
-            return;
-        }
-
+        if (!user) return;
         try {
-            console.log('📥 Loading payment history for:', user.uid);
-
-            const paymentsRef = collection(db, 'payments');
-            // get all user's payments sorted by newest first
+            setLoading(true);
             const q = query(
-                paymentsRef,
+                collection(db, 'payments'),
                 where('userId', '==', user.uid),
-                orderBy('createdAt', 'desc')
+                orderBy('date', 'desc')
             );
-
             const querySnapshot = await getDocs(q);
-
-            const payments: PaymentHistory[] = [];
+            const historyData: PaymentHistory[] = [];
             querySnapshot.forEach((doc) => {
-                const data = doc.data();
-                payments.push({
-                    id: doc.id,
-                    skillName: data.skillName,
-                    amount: data.amount,
-                    date: data.date,
-                    status: data.status,
-                    instructor: data.instructor,
-                    paymentIntentId: data.paymentIntentId,
-                    duration: data.duration,
-                    serviceFee: data.serviceFee,
-                    instructorFee: data.instructorFee,
-                });
+                historyData.push({ id: doc.id, ...doc.data() } as PaymentHistory);
             });
-
-            console.log('✅ Loaded', payments.length, 'payment(s)');
-            setHistory(payments);
-        } catch (error: any) {
-            console.error('❌ Error loading history:', error);
-            // handle missing firestore index error
-            if (error.code === 'failed-precondition') {
-                Alert.alert(
-                    'Database Setup Required',
-                    'Please create an index in Firestore. Check the Firebase Console for details.'
-                );
-            } else {
-                Alert.alert('Error', 'Could not load payment history. Please try again.');
-            }
+            setHistory(historyData);
+        } catch (error) {
+            console.error('Error loading history:', error);
+            Alert.alert('Error', 'Failed to load payment history');
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -109,153 +87,96 @@ export default function PaymentHistoryScreen() {
         loadPaymentHistory();
     };
 
-    // get color for payment status badge
+    // Helper: Format Date
+    const formatDate = (isoString: string) => {
+        const date = new Date(isoString);
+        return date.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
+    };
+
+    // Helper: Status Color
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
-            case 'completed':
-                return '#4CAF50';
-            case 'pending':
-                return '#FF9800';
-            case 'cancelled':
-                return '#F44336';
-            case 'refunded':
-                return '#9C27B0';
-            default:
-                return '#666';
+            case 'completed': return { bg: '#D1FAE5', text: '#065F46' }; // Green
+            case 'pending': return { bg: '#FEF3C7', text: '#92400E' }; // Yellow
+            case 'failed': return { bg: '#FEE2E2', text: '#991B1B' }; // Red
+            default: return { bg: '#F3F4F6', text: '#374151' }; // Gray
         }
     };
 
-    // format date to readable string
-    const formatDate = (dateString: string) => {
-        try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-            });
-        } catch {
-            return dateString;
-        }
-    };
-
-    // show detailed payment info in alert
-    const handleViewDetails = (payment: PaymentHistory) => {
-        Alert.alert(
-            'Payment Details',
-            `Skill: ${payment.skillName}\n` +
-            `Instructor: ${payment.instructor}\n` +
-            `Duration: ${payment.duration || 'N/A'}\n\n` +
-            `Instructor Fee: $${payment.instructorFee?.toFixed(2) || 'N/A'}\n` +
-            `Service Fee: $${payment.serviceFee?.toFixed(2) || 'N/A'}\n` +
-            `Total: $${payment.amount.toFixed(2)}\n\n` +
-            `Date: ${formatDate(payment.date)}\n` +
-            `Payment ID: ${payment.paymentIntentId}\n` +
-            `Status: ${payment.status.toUpperCase()}`
-        );
-    };
-
-    // show loading state
-    if (loading) {
+    if (loading && !refreshing) {
         return (
-            <SafeAreaView style={styles.container} edges={['bottom']}>
+            <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
-                    <Text style={styles.loadingText}>Loading payment history...</Text>
+                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
                 </View>
             </SafeAreaView>
         );
     }
 
     return (
-        <SafeAreaView style={styles.container} edges={['bottom']}>
+        <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Payment History</Text>
+                <View style={{ width: 40 }} />
+            </View>
+
             <ScrollView
                 style={styles.content}
-                showsVerticalScrollIndicator={false}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={onRefresh}
-                        tintColor="#007AFF"
-                    />
-                }
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primaryBrand} />}
+                contentContainerStyle={styles.listContent}
             >
-                {/* header with title and transaction count */}
-                <View style={styles.header}>
-                    <Text style={styles.title}>Payment History</Text>
-                    <Text style={styles.subtitle}>
-                        {history.length} {history.length === 1 ? 'transaction' : 'transactions'}
-                    </Text>
-                </View>
-
-                {/* show empty state or payment cards */}
                 {history.length === 0 ? (
                     <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>📋</Text>
-                        <Text style={styles.emptyText}>No payment history yet</Text>
-                        <Text style={styles.emptySubtext}>
-                            Your completed bookings will appear here
-                        </Text>
+                        <Ionicons name="receipt-outline" size={64} color={COLORS.border} />
+                        <Text style={styles.emptyText}>No payments yet</Text>
+                        <Text style={styles.emptySubText}>Transactions will appear here.</Text>
                     </View>
                 ) : (
-                    history.map((payment) => (
-                        <TouchableOpacity
-                            key={payment.id}
-                            style={styles.paymentCard}
-                            onPress={() => handleViewDetails(payment)}
-                            activeOpacity={0.7}
-                        >
-                            {/* payment header with skill and status */}
-                            <View style={styles.paymentHeader}>
-                                <View style={styles.paymentInfo}>
-                                    <Text style={styles.skillName}>{payment.skillName}</Text>
-                                    <Text style={styles.instructorText}>with {payment.instructor}</Text>
+                    history.map((item) => {
+                        const statusStyle = getStatusColor(item.status);
+                        return (
+                            <View key={item.id} style={styles.card}>
+                                {/* Top Row: Skill & Status */}
+                                <View style={styles.row}>
+                                    <View style={styles.iconBox}>
+                                        <Ionicons name="school-outline" size={24} color={COLORS.primaryBrandText} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.skillName}>{item.skillName}</Text>
+                                        <Text style={styles.dateText}>{formatDate(item.date)}</Text>
+                                    </View>
+                                    <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                                        <Text style={[styles.statusText, { color: statusStyle.text }]}>
+                                            {item.status.toUpperCase()}
+                                        </Text>
+                                    </View>
                                 </View>
-                                <View
-                                    style={[
-                                        styles.statusBadge,
-                                        { backgroundColor: getStatusColor(payment.status) + '20' },
-                                    ]}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.statusText,
-                                            { color: getStatusColor(payment.status) },
-                                        ]}
-                                    >
-                                        {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                                    </Text>
-                                </View>
-                            </View>
 
-                            {/* payment details summary */}
-                            <View style={styles.paymentDetails}>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>📅 Date:</Text>
-                                    <Text style={styles.detailValue}>{formatDate(payment.date)}</Text>
-                                </View>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>💳 Amount:</Text>
-                                    <Text style={styles.amountText}>${payment.amount.toFixed(2)}</Text>
-                                </View>
-                                <View style={styles.detailRow}>
-                                    <Text style={styles.detailLabel}>🆔 Payment ID:</Text>
-                                    <Text style={styles.transactionId}>
-                                        {payment.paymentIntentId.substring(0, 20)}...
-                                    </Text>
-                                </View>
-                            </View>
+                                {/* Divider */}
+                                <View style={styles.divider} />
 
-                            <View style={styles.tapHintContainer}>
-                                <Text style={styles.tapHint}>Tap to view full details →</Text>
+                                {/* Details */}
+                                <View style={styles.detailRow}>
+                                    <Text style={styles.detailLabel}>Instructor</Text>
+                                    <Text style={styles.detailValue}>{item.instructor}</Text>
+                                </View>
+                                
+                                <View style={styles.detailRow}>
+                                    <Text style={styles.detailLabel}>Amount</Text>
+                                    <Text style={styles.amountText}>${item.amount.toFixed(2)}</Text>
+                                </View>
                             </View>
-                        </TouchableOpacity>
-                    ))
+                        );
+                    })
                 )}
-
-                <View style={styles.bottomSpacer} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -264,137 +185,123 @@ export default function PaymentHistoryScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: COLORS.lightGray,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        backgroundColor: COLORS.background,
+        borderBottomWidth: 1,
+        borderColor: COLORS.border,
+    },
+    backButton: {
+        padding: 4,
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        color: COLORS.textPrimary,
     },
     content: {
         flex: 1,
+    },
+    listContent: {
         padding: 20,
+        paddingBottom: 40,
     },
-    header: {
-        marginBottom: 24,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 8,
-    },
-    subtitle: {
-        fontSize: 16,
-        color: '#666',
-    },
-    emptyContainer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 60,
-    },
-    emptyIcon: {
-        fontSize: 64,
-        marginBottom: 16,
-    },
-    emptyText: {
-        fontSize: 20,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 8,
-    },
-    emptySubtext: {
-        fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
-    },
-    paymentCard: {
-        backgroundColor: '#fff',
+    // Card Styles
+    card: {
+        backgroundColor: COLORS.cardBackground,
         borderRadius: 16,
-        padding: 20,
+        padding: 16,
         marginBottom: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 3,
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 1,
     },
-    paymentHeader: {
+    row: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 16,
+        alignItems: 'center',
+        marginBottom: 12,
     },
-    paymentInfo: {
-        flex: 1,
+    iconBox: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: COLORS.primaryBrand,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
     },
     skillName: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 4,
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
     },
-    instructorText: {
-        fontSize: 14,
-        color: '#666',
+    dateText: {
+        fontSize: 12,
+        color: COLORS.textSecondary,
     },
     statusBadge: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
     },
     statusText: {
-        fontSize: 12,
-        fontWeight: '600',
+        fontSize: 10,
+        fontWeight: '800',
     },
-    paymentDetails: {
-        borderTopWidth: 1,
-        borderTopColor: '#e0e0e0',
-        paddingTop: 16,
+    divider: {
+        height: 1,
+        backgroundColor: COLORS.lightGray,
+        marginBottom: 12,
     },
     detailRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 6,
     },
     detailLabel: {
         fontSize: 14,
-        color: '#666',
+        color: COLORS.textSecondary,
     },
     detailValue: {
         fontSize: 14,
-        color: '#333',
-        fontWeight: '500',
+        fontWeight: '600',
+        color: COLORS.textPrimary,
     },
     amountText: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#007AFF',
+        fontWeight: '800',
+        color: COLORS.textPrimary,
     },
-    transactionId: {
-        fontSize: 12,
-        color: '#999',
-        fontFamily: 'monospace',
+    // Empty State
+    emptyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 60,
     },
-    tapHintContainer: {
-        marginTop: 12,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#f0f0f0',
+    emptyText: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginTop: 16,
     },
-    tapHint: {
-        fontSize: 12,
-        color: '#007AFF',
-        textAlign: 'center',
-        fontStyle: 'italic',
-    },
-    bottomSpacer: {
-        height: 20,
+    emptySubText: {
+        color: COLORS.textSecondary,
+        marginTop: 4,
     },
 });
