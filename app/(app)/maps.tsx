@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import MapView, { Marker, UrlTile, LatLng } from "react-native-maps";
+import MapView, { Marker, UrlTile, LatLng, Callout } from "react-native-maps";
 import * as Location from "expo-location";
 import { db, auth } from "../../firebaseConfig";
 import { query, where, doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
+import { haversineDistance } from '@/utils/haversineDistance';
+
 
 export default function MapsScreen() {
     const mapRef = useRef<MapView>(null);
@@ -16,15 +18,7 @@ export default function MapsScreen() {
     } | null>(null);
 
     const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-    const [friendIds, setFriendIds] = useState<string[]>([]);
     const [users, setUsers] = useState<any[]>([]);
-
-    const defaultRegion = {
-        latitude: 0,
-        longitude: 0,
-        latitudeDelta: 0.04,
-        longitudeDelta: 0.04,
-    };
 
     // ---------------------------
     // 1) FETCH CURRENT USER LOCATION
@@ -36,17 +30,13 @@ export default function MapsScreen() {
 
                 const userRef = doc(db, "users", auth.currentUser.uid);
                 const userSnap = await getDoc(userRef);
-                if (!userSnap.exists()) {
+
+                if (!userSnap.exists() || !userSnap.data()?.location) {
                     setShowPermissionPrompt(true);
                     return;
                 }
 
                 const data = userSnap.data();
-                if (!data.location) {
-                    setShowPermissionPrompt(true);
-                    return;
-                }
-
                 setRegion({
                     latitude: data.location.latitude,
                     longitude: data.location.longitude,
@@ -60,73 +50,44 @@ export default function MapsScreen() {
     }, []);
 
     // ---------------------------
-    // 2) FETCH FRIEND LIST
+    // 2) FETCH FRIEND USERS (combine IDs + data)
     // ---------------------------
     useEffect(() => {
-        if (!auth.currentUser) return;
+        if (!region || !auth.currentUser) return;
 
-        const fetchFriends = async () => {
+        const fetchFriendUsers = async () => {
             try {
-                const q = query(
-                    collection(db, "friends"),
-                    where("userId", "==", auth.currentUser!.uid)
+                // 1) Get friend IDs
+                const friendSnap = await getDocs(
+                    query(collection(db, "friends"), where("userId", "==", auth.currentUser!.uid))
                 );
+                const friendIds = friendSnap.docs.map(doc => doc.data().friendId).filter(Boolean);
 
-                const snapshot = await getDocs(q);
-                const fIds: string[] = [];
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.friendId) fIds.push(data.friendId);
-                });
-
-                setFriendIds(fIds);
-            } catch (error) {
-                console.log("Error fetching friends:", error);
-            }
-        };
-
-        fetchFriends();
-    }, []);
-
-    // ---------------------------
-    // 3) FETCH FRIEND USERS
-    // ---------------------------
-    useEffect(() => {
-        if (!region) return;
-
-        const fetchUsers = async () => {
-            try {
-                const snapshot = await getDocs(collection(db, "users"));
-                const friendUsers: any[] = [];
-
-                snapshot.forEach((docSnap) => {
-                    const data = docSnap.data();
-                    const uid = docSnap.id;
-                    if (uid === auth.currentUser?.uid) return;
-                    if (!friendIds.includes(uid)) return;
-                    if (!data.location) return;
-
-                    friendUsers.push({
-                        id: uid,
-                        name: data.displayName || data.username || "Unnamed",
-                        latitude: data.location.latitude,
-                        longitude: data.location.longitude,
+                // 2) Get friend user data
+                const usersSnap = await getDocs(collection(db, "users"));
+                const friendUsers = usersSnap.docs
+                    .filter(docSnap => friendIds.includes(docSnap.id) && docSnap.id !== auth.currentUser?.uid && docSnap.data().location)
+                    .map(docSnap => {
+                        const data = docSnap.data();
+                        return {
+                            id: docSnap.id,
+                            name: data.displayName || data.username || "Unnamed",
+                            latitude: data.location.latitude,
+                            longitude: data.location.longitude,
+                            skillsTeaching: data.skillsTeaching || [],
+                            skillsLearning: data.skillsLearning || [],
+                        };
                     });
-                });
 
                 setUsers(friendUsers);
 
-                // ---------------------------
-                // FIT MAP TO FRIENDS
-                // ---------------------------
+                // Fit map
                 if (friendUsers.length && mapRef.current) {
                     const coordinates: LatLng[] = friendUsers.map(u => ({
                         latitude: u.latitude,
                         longitude: u.longitude,
                     }));
-
-                    // Include current user
-                    if (region) coordinates.push({ latitude: region.latitude, longitude: region.longitude });
+                    coordinates.push({ latitude: region.latitude, longitude: region.longitude });
 
                     mapRef.current.fitToCoordinates(coordinates, {
                         edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
@@ -134,19 +95,77 @@ export default function MapsScreen() {
                     });
                 }
             } catch (err) {
-                console.error("Error fetching users:", err);
+                console.error("Error fetching friend users:", err);
             }
         };
 
-        fetchUsers();
-    }, [region, friendIds]);
+        fetchFriendUsers();
+    }, [region]);
+
+    // ---------------------------
+    // 3) FRIEND CARD
+    // ---------------------------
+    const FriendCardMap = ({ friend }: { friend: any }) => {
+        const displayName = friend.name || "User";
+
+        let locationText = "Location unavailable";
+        if (region && friend.latitude && friend.longitude) {
+            try {
+                const distance = haversineDistance(
+                    { latitude: region.latitude, longitude: region.longitude },
+                    { latitude: friend.latitude, longitude: friend.longitude }
+                );
+                locationText = `${distance.toFixed(1)} km away`;
+            } catch (err) {
+                locationText = "Location unavailable";
+            }
+        }
+
+        return (
+            <View style={styles.calloutCard}>
+                <View style={styles.friendHeader}>
+                    <View style={styles.leftSection}>
+                        <View style={styles.avatarContainer}>
+                            <View style={styles.friendAvatar}>
+                                <Text style={styles.friendAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.friendInfo}>
+                            <Text style={styles.friendName}>{displayName}</Text>
+                            <Text style={styles.locationText}>📍 {locationText}</Text>
+                        </View>
+                    </View>
+                </View>
+
+                <View style={styles.skillsRow}>
+                    {friend.skillsTeaching?.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Teaches:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {friend.skillsTeaching.join(", ")}
+                            </Text>
+                        </View>
+                    )}
+                    {friend.skillsLearning?.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Learns:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {friend.skillsLearning.join(", ")}
+                            </Text>
+                        </View>
+                    )}
+                </View>
+            </View>
+        );
+    };
 
     return (
         <View style={styles.container}>
             <MapView
                 ref={mapRef}
                 style={styles.map}
-                region={region ?? defaultRegion}
+                region={region ?? { latitude: 0, longitude: 0, latitudeDelta: 0.04, longitudeDelta: 0.04 }}
                 showsUserLocation={true}
                 loadingEnabled={true}
                 pitchEnabled={false}
@@ -159,11 +178,11 @@ export default function MapsScreen() {
                 />
 
                 {users.map(u => (
-                    <Marker
-                        key={u.id}
-                        coordinate={{ latitude: u.latitude, longitude: u.longitude }}
-                        title={u.name}
-                    />
+                    <Marker key={u.id} coordinate={{ latitude: u.latitude, longitude: u.longitude }}>
+                        <Callout tooltip>
+                            <FriendCardMap friend={u} />
+                        </Callout>
+                    </Marker>
                 ))}
             </MapView>
 
@@ -203,6 +222,7 @@ export default function MapsScreen() {
     );
 }
 
+// Styles remain unchanged
 const styles = StyleSheet.create({
     container: { flex: 1 },
     map: { flex: 1 },
@@ -219,8 +239,31 @@ const styles = StyleSheet.create({
     },
     title: { fontSize: 28, fontWeight: "bold", marginBottom: 10 },
     subtitle: { fontSize: 16, color: "#555", marginBottom: 40, textAlign: "center" },
-    button: { backgroundColor: "#007AFF", padding: 14, borderRadius: 8, width: "80%", marginBottom: 15 },
+    button: { backgroundColor: '#FCD34D', padding: 14, borderRadius: 8, width: "80%", marginBottom: 15 },
     buttonText: { color: "white", fontSize: 18, textAlign: "center" },
     denyButton: { padding: 12 },
     denyText: { color: "red", fontSize: 16 },
+
+    calloutCard: {
+        width: 260,
+        backgroundColor: "#fff",
+        borderRadius: 12,
+        padding: 12,
+        shadowColor: "#000",
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+        elevation: 4,
+    },
+    friendHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    leftSection: { flexDirection: "row", alignItems: "center" },
+    avatarContainer: { marginRight: 10 },
+    friendAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FCD34D', justifyContent: "center", alignItems: "center" },
+    friendAvatarText: { color: "black", fontSize: 18, fontWeight: "bold" },
+    friendInfo: { flexDirection: "column" },
+    friendName: { fontSize: 16, fontWeight: "bold" },
+    locationText: { fontSize: 12, color: "#444" },
+    skillsRow: { marginTop: 10 },
+    skillGroup: { marginBottom: 6 },
+    skillLabel: { fontWeight: "600", fontSize: 12, color: "#333" },
+    skillList: { fontSize: 12, color: "#555" },
 });
