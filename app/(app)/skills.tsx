@@ -19,25 +19,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
-import StarRating from '../../components/StarRating';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
 
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard yellow
-    primaryBrandText: '#1F2937', // Dark text for contrast on yellow
+    primaryBrandText: '#1F2937', // Dark text for contrast
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
     textPrimary: '#1F2937',
     textSecondary: '#6B7280',
     border: '#E5E7EB',
-    accentGreen: '#10B981', // For "Online" or "Message"
-    accentBlue: '#3B82F6',   // For "Connect" if not using primary
+    accentGreen: '#10B981',
     lightGray: '#F9FAFB',
 };
 
-// User profile interface - UPDATED with rating fields
+// User profile interface
 interface UserWithSkills {
     id: string;
     uid: string;
@@ -46,11 +44,11 @@ interface UserWithSkills {
     skillsTeaching: string[];
     skillsLearning: string[];
     bio?: string;
-    location?: string;
+    location?: any; 
     status: 'online' | 'offline' | 'in-call';
-    averageRating?: number;
-    reviewCount?: number;
 }
+
+type RoleFilterType = 'All' | 'Teaches' | 'Learns';
 
 export default function SkillsScreen() {
     const { user } = useAuth();
@@ -61,13 +59,17 @@ export default function SkillsScreen() {
     const [users, setUsers] = useState<UserWithSkills[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
     const [allSkills, setAllSkills] = useState<string[]>(['All']);
-
+    
     // UI State
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
+    
+    // Filters State
     const [selectedSkill, setSelectedSkill] = useState<string>('All');
-
+    const [roleFilter, setRoleFilter] = useState<RoleFilterType>('All');
+    const [showFilterModal, setShowFilterModal] = useState(false); // New Modal State
+    
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -87,21 +89,15 @@ export default function SkillsScreen() {
         }, [])
     );
 
-    // Handle incoming parameters and reset pagination on filter change
     useEffect(() => {
         if (params.skill && typeof params.skill === 'string') {
-            const incomingSkill = params.skill;
-            setSelectedSkill(incomingSkill);
-            if (users.length > 0) {
-                filterUsers(searchText, incomingSkill);
-            }
+            setSelectedSkill(params.skill);
         }
-    }, [params.skill, users]);
+    }, [params.skill]);
 
-    // Reset to page 1 whenever filters change
     useEffect(() => {
-        setCurrentPage(1);
-    }, [searchText, selectedSkill, filteredUsers.length]);
+        applyFilters();
+    }, [users, searchText, selectedSkill, roleFilter]);
 
     const loadUsers = async () => {
         try {
@@ -126,10 +122,8 @@ export default function SkillsScreen() {
                             skillsTeaching: data.skillsTeaching || [],
                             skillsLearning: data.skillsLearning || [],
                             bio: data.bio || '',
-                            location: data.location || '',
+                            location: data.location || null,
                             status: data.status || 'offline',
-                            averageRating: data.averageRating || 0,
-                            reviewCount: data.reviewCount || 0,
                         });
                         data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
                         data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
@@ -138,7 +132,6 @@ export default function SkillsScreen() {
             });
 
             setUsers(usersData);
-            if (!params.skill) setFilteredUsers(usersData);
             setAllSkills(['All', ...Array.from(skillsSet).sort()]);
         } catch (error: any) {
             console.error('Error loading users:', error);
@@ -178,26 +171,31 @@ export default function SkillsScreen() {
         }
     };
 
-    const handleSearch = (text: string) => {
-        setSearchText(text);
-        filterUsers(text, selectedSkill);
-    };
+    const applyFilters = () => {
+        let result = users;
 
-    const handleSkillFilter = (skill: string) => {
-        setSelectedSkill(skill);
-        filterUsers(searchText, skill);
-    };
+        // Skill & Role Filter
+        if (selectedSkill !== 'All') {
+            result = result.filter(u => {
+                const teaches = u.skillsTeaching.includes(selectedSkill);
+                const learns = u.skillsLearning.includes(selectedSkill);
 
-    const filterUsers = (search: string, skill: string) => {
-        let filtered = users;
-        if (skill !== 'All') {
-            filtered = filtered.filter(u =>
-                u.skillsTeaching.includes(skill) || u.skillsLearning.includes(skill)
-            );
+                if (roleFilter === 'Teaches') return teaches;
+                if (roleFilter === 'Learns') return learns;
+                return teaches || learns; 
+            });
+        } else {
+            if (roleFilter === 'Teaches') {
+                result = result.filter(u => u.skillsTeaching.length > 0);
+            } else if (roleFilter === 'Learns') {
+                result = result.filter(u => u.skillsLearning.length > 0);
+            }
         }
-        if (search.trim()) {
-            const lowerSearch = search.toLowerCase();
-            filtered = filtered.filter(u =>
+
+        // Search Text
+        if (searchText.trim()) {
+            const lowerSearch = searchText.toLowerCase();
+            result = result.filter(u =>
                 u.displayName.toLowerCase().includes(lowerSearch) ||
                 u.email.toLowerCase().includes(lowerSearch) ||
                 u.bio?.toLowerCase().includes(lowerSearch) ||
@@ -205,10 +203,12 @@ export default function SkillsScreen() {
                 u.skillsLearning.some(s => s.toLowerCase().includes(lowerSearch))
             );
         }
-        setFilteredUsers(filtered);
+
+        setFilteredUsers(result);
+        setCurrentPage(1); 
     };
 
-    // --- Pagination Logic ---
+    // Pagination Logic
     const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
     const paginatedUsers = filteredUsers.slice(
         (currentPage - 1) * ITEMS_PER_PAGE,
@@ -223,7 +223,7 @@ export default function SkillsScreen() {
         if (currentPage > 1) setCurrentPage(c => c - 1);
     };
 
-    // --- Friend Request Logic ---
+    // Actions
     const openRequestModal = (targetUser: UserWithSkills) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
@@ -275,11 +275,21 @@ export default function SkillsScreen() {
         loadExistingFriends();
     };
 
-    // --- Render User Card with Ratings ---
+    // Render Items
     const renderUserCard = (targetUser: UserWithSkills) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
         const isOnline = targetUser.status === 'online';
+
+        // Safe Location Logic
+        let locationText = null;
+        if (targetUser.location) {
+            if (typeof targetUser.location === 'string') {
+                locationText = targetUser.location;
+            } else if (typeof targetUser.location === 'object') {
+                locationText = "Location Shared";
+            }
+        }
 
         return (
             <View key={targetUser.uid} style={styles.card}>
@@ -296,23 +306,14 @@ export default function SkillsScreen() {
 
                     {/* Info */}
                     <View style={styles.cardInfo}>
-                        <View style={styles.nameRow}>
-                            <Text style={styles.userName} numberOfLines={1}>
-                                {targetUser.displayName}
-                            </Text>
-                            {targetUser.location && (
-                                <Text style={styles.location} numberOfLines={1}>📍 {targetUser.location}</Text>
-                            )}
-                        </View>
-
-                        {/* Star Rating Display */}
-                        <StarRating
-                            rating={targetUser.averageRating || 0}
-                            reviewCount={targetUser.reviewCount || 0}
-                            size="small"
-                            showCount={true}
-                        />
-
+                        <Text style={styles.userName} numberOfLines={1}>
+                            {targetUser.displayName}
+                        </Text>
+                        
+                        {locationText && (
+                            <Text style={styles.location} numberOfLines={1}>📍 {locationText}</Text>
+                        )}
+                        
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={1}>
                                 {targetUser.bio}
@@ -320,7 +321,7 @@ export default function SkillsScreen() {
                         )}
                     </View>
 
-                    {/* Compact Action Button (Right aligned) */}
+                    {/* Action Button */}
                     <View style={styles.cardAction}>
                         {isFriend ? (
                             <TouchableOpacity style={styles.iconButton} onPress={() => handleMessageUser(targetUser)}>
@@ -338,9 +339,9 @@ export default function SkillsScreen() {
                     </View>
                 </View>
 
-                {/* Compact Skills Row */}
+                {/* Skills Row */}
                 <View style={styles.skillsRow}>
-                    {targetUser.skillsTeaching.length > 0 && (
+                    {(roleFilter === 'All' || roleFilter === 'Teaches') && targetUser.skillsTeaching.length > 0 && (
                         <View style={styles.skillGroup}>
                             <Text style={styles.skillLabel}>Teaches:</Text>
                             <Text style={styles.skillList} numberOfLines={1}>
@@ -348,7 +349,7 @@ export default function SkillsScreen() {
                             </Text>
                         </View>
                     )}
-                    {targetUser.skillsLearning.length > 0 && (
+                    {(roleFilter === 'All' || roleFilter === 'Learns') && targetUser.skillsLearning.length > 0 && (
                         <View style={styles.skillGroup}>
                             <Text style={styles.skillLabel}>Learns:</Text>
                             <Text style={styles.skillList} numberOfLines={1}>
@@ -371,13 +372,15 @@ export default function SkillsScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Updated Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
-                <TouchableOpacity style={styles.filterButton}>
-                    <Ionicons name="filter" size={20} color={COLORS.textPrimary} />
+                <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
+                    <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
             </View>
 
+            {/* Search */}
             <View style={styles.searchSection}>
                 <View style={styles.searchBox}>
                     <Ionicons name="search" size={18} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
@@ -385,12 +388,13 @@ export default function SkillsScreen() {
                         style={styles.input}
                         placeholder="Find people or skills..."
                         value={searchText}
-                        onChangeText={handleSearch}
+                        onChangeText={setSearchText}
                         placeholderTextColor={COLORS.textSecondary}
                     />
                 </View>
             </View>
 
+            {/* Skill Chips (Categories) */}
             <View style={styles.chipsContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContent}>
                     {allSkills.map((skill) => (
@@ -400,7 +404,7 @@ export default function SkillsScreen() {
                                 styles.chip,
                                 selectedSkill === skill && styles.chipActive,
                             ]}
-                            onPress={() => handleSkillFilter(skill)}
+                            onPress={() => setSelectedSkill(skill)}
                         >
                             <Text style={[
                                 styles.chipText,
@@ -420,29 +424,25 @@ export default function SkillsScreen() {
             >
                 {filteredUsers.length === 0 ? (
                     <View style={styles.emptyState}>
-                        <Text style={styles.emptyText}>No users found.</Text>
+                        <Text style={styles.emptyText}>No users found matching filters.</Text>
                     </View>
                 ) : (
                     paginatedUsers.map(renderUserCard)
                 )}
 
-                {/* Pagination Controls */}
+                {/* Pagination */}
                 {filteredUsers.length > 0 && (
                     <View style={styles.paginationContainer}>
-                        <TouchableOpacity
-                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]}
+                        <TouchableOpacity 
+                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]} 
                             onPress={prevPage}
                             disabled={currentPage === 1}
                         >
                             <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#ccc' : COLORS.textPrimary} />
                         </TouchableOpacity>
-
-                        <Text style={styles.pageText}>
-                            Page {currentPage} of {totalPages}
-                        </Text>
-
-                        <TouchableOpacity
-                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]}
+                        <Text style={styles.pageText}>Page {currentPage} of {totalPages}</Text>
+                        <TouchableOpacity 
+                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]} 
                             onPress={nextPage}
                             disabled={currentPage === totalPages}
                         >
@@ -450,11 +450,48 @@ export default function SkillsScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
-
+                
                 <View style={{ height: 40 }} />
             </ScrollView>
 
-            {/* Modal */}
+            {/* FILTER MODAL (New) */}
+            <Modal visible={showFilterModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.filterModalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Filter Users</Text>
+                            <TouchableOpacity onPress={() => setShowFilterModal(false)}>
+                                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        
+                        <Text style={styles.filterLabel}>Show users who:</Text>
+                        <View style={styles.roleOptionsContainer}>
+                            {(['All', 'Teaches', 'Learns'] as RoleFilterType[]).map((role) => (
+                                <TouchableOpacity
+                                    key={role}
+                                    style={[styles.roleOption, roleFilter === role && styles.roleOptionActive]}
+                                    onPress={() => setRoleFilter(role)}
+                                >
+                                    <Text style={[styles.roleOptionText, roleFilter === role && styles.roleOptionTextActive]}>
+                                        {role === 'All' ? 'Do Both / All' : role}
+                                    </Text>
+                                    {roleFilter === role && <Ionicons name="checkmark" size={18} color={COLORS.primaryBrandText} />}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        
+                        <TouchableOpacity 
+                            style={styles.applyFilterButton} 
+                            onPress={() => setShowFilterModal(false)}
+                        >
+                            <Text style={styles.applyFilterButtonText}>Done</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Request Modal (Existing) */}
             <Modal visible={showRequestModal} animationType="fade" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -472,14 +509,14 @@ export default function SkillsScreen() {
                             multiline
                         />
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                style={styles.modalBtnCancel}
+                             <TouchableOpacity 
+                                style={styles.modalBtnCancel} 
                                 onPress={() => setShowRequestModal(false)}
                             >
                                 <Text style={styles.modalBtnTextCancel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.modalBtnSend}
+                            <TouchableOpacity 
+                                style={styles.modalBtnSend} 
                                 onPress={sendFriendRequest}
                                 disabled={sending}
                             >
@@ -512,10 +549,8 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: COLORS.textPrimary,
     },
-    filterButton: {
+    filterIconBtn: {
         padding: 8,
-        backgroundColor: COLORS.lightGray,
-        borderRadius: 20,
     },
     // Search
     searchSection: {
@@ -568,12 +603,12 @@ const styles = StyleSheet.create({
     // List
     listContainer: {
         flex: 1,
-        backgroundColor: '#FAFAFA',
+        backgroundColor: '#FAFAFA', 
     },
     listContent: {
         padding: 20,
     },
-    // COMPACT CARD STYLES
+    // CARD STYLES
     card: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -589,7 +624,7 @@ const styles = StyleSheet.create({
     },
     cardHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start', // Align to top
         marginBottom: 8,
     },
     avatarContainer: {
@@ -623,29 +658,28 @@ const styles = StyleSheet.create({
     cardInfo: {
         flex: 1,
         justifyContent: 'center',
-    },
-    nameRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 2,
+        paddingVertical: 2,
     },
     userName: {
         fontSize: 16,
         fontWeight: '700',
         color: COLORS.textPrimary,
-        marginRight: 6,
+        marginBottom: 2,
     },
     location: {
         fontSize: 12,
         color: COLORS.textSecondary,
+        marginBottom: 2,
     },
     bio: {
         fontSize: 12,
         color: COLORS.textSecondary,
-        marginTop: 4,
+        fontStyle: 'italic',
     },
     cardAction: {
         marginLeft: 8,
+        justifyContent: 'center',
+        height: 46, // Align vertically with avatar
     },
     addButton: {
         width: 32,
@@ -723,7 +757,7 @@ const styles = StyleSheet.create({
     emptyText: {
         color: COLORS.textSecondary,
     },
-    // Modal
+    // Modal & Filter Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -734,6 +768,12 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderRadius: 16,
         padding: 20,
+    },
+    filterModalContent: {
+        backgroundColor: 'white',
+        borderRadius: 16,
+        padding: 20,
+        maxHeight: '50%',
     },
     modalHeader: {
         flexDirection: 'row',
@@ -778,5 +818,49 @@ const styles = StyleSheet.create({
     modalBtnTextSend: {
         fontWeight: '600',
         color: COLORS.primaryBrandText,
+    },
+    // Filter Modal Specifics
+    filterLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
+        marginBottom: 12,
+    },
+    roleOptionsContainer: {
+        gap: 10,
+        marginBottom: 20,
+    },
+    roleOption: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 14,
+        borderRadius: 10,
+        backgroundColor: '#F9FAFB',
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    roleOptionActive: {
+        backgroundColor: '#FFFBEB',
+        borderColor: COLORS.primaryBrand,
+    },
+    roleOptionText: {
+        fontSize: 15,
+        color: COLORS.textPrimary,
+    },
+    roleOptionTextActive: {
+        fontWeight: '700',
+        color: '#B45309',
+    },
+    applyFilterButton: {
+        backgroundColor: COLORS.primaryBrand,
+        padding: 14,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    applyFilterButtonText: {
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
+        fontSize: 16,
     },
 });
