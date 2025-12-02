@@ -31,6 +31,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
+import StarRating from '../../components/StarRating';
 
 // --- Theme Configuration ---
 const COLORS = {
@@ -56,6 +57,8 @@ interface UserProfile {
     skillsLearning: string[];
     location?: any;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 export default function FindFriendsScreen() {
@@ -65,9 +68,9 @@ export default function FindFriendsScreen() {
     // Data State
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false); // for infinite scroll spinner
-    const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null); // Cursor for pagination
-    const [hasMore, setHasMore] = useState(true); // Stop fetching if no more data
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+    const [hasMore, setHasMore] = useState(true);
     const [searchText, setSearchText] = useState('');
 
     // Request State
@@ -81,14 +84,13 @@ export default function FindFriendsScreen() {
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
     useEffect(() => {
-        loadUsers(false); // Initial Load
+        loadUsers(false);
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
-    // New: Consolidated Load Function with Pagination
+    // Consolidated Load Function with Pagination
     const loadUsers = async (loadMore: boolean = false) => {
-        // Prevent duplicate calls
         if (loadMore && (loadingMore || !hasMore)) return;
 
         try {
@@ -105,12 +107,8 @@ export default function FindFriendsScreen() {
 
             // Search Logic (Server-side Prefix Search)
             if (searchText.trim()) {
-                // If searching, we reset pagination rules slightly or stick to name ordering
-                // Note: Firestore is case-sensitive. "alex" won't find "Alex".
-                // For a real app, store a 'searchName' field in lowercase.
-                // Here we assume exact case match for simplicity or Capitalized.
                 const term = searchText.trim();
-                
+
                 if (loadMore && lastDoc) {
                     q = query(
                         usersRef,
@@ -134,7 +132,7 @@ export default function FindFriendsScreen() {
                 if (loadMore && lastDoc) {
                     q = query(
                         usersRef,
-                        orderBy('displayName'), // Ensure you have this field, or use 'email'
+                        orderBy('displayName'),
                         startAfter(lastDoc),
                         limit(PAGE_SIZE)
                     );
@@ -148,7 +146,7 @@ export default function FindFriendsScreen() {
             }
 
             const querySnapshot = await getDocs(q);
-            
+
             // Check if we hit the end
             if (querySnapshot.docs.length < PAGE_SIZE) {
                 setHasMore(false);
@@ -174,6 +172,8 @@ export default function FindFriendsScreen() {
                         skillsLearning: data.skillsLearning || [],
                         location: data.location || null,
                         status: data.status || 'offline',
+                        averageRating: data.averageRating || 0,
+                        reviewCount: data.reviewCount || 0,
                     });
                 }
             });
@@ -191,8 +191,6 @@ export default function FindFriendsScreen() {
 
         } catch (error: any) {
             console.error('Error loading users:', error);
-            // Alert.alert('Error', 'Failed to load users'); 
-            // Suppress alert on empty search results or permission errors
         } finally {
             setLoading(false);
             setLoadingMore(false);
@@ -234,22 +232,17 @@ export default function FindFriendsScreen() {
         }
     };
 
-    // Modified to trigger new search on text change
     const handleSearch = (text: string) => {
         setSearchText(text);
-        // Reset and reload logic is handled by useEffect or manual trigger
-        // Here we can rely on a debounce or just call it directly for simplicity
-        // But since we are calling state setter, we need to wait for state. 
-        // Better: Pass the text directly to a helper or useEffect.
     };
-    
-    // Trigger search when text changes (with debounce ideally, but simplified here)
+
+    // Trigger search when text changes with debounce
     useEffect(() => {
         const timer = setTimeout(() => {
-            setLastDoc(null); // Reset cursor
+            setLastDoc(null);
             setHasMore(true);
-            loadUsers(false); // Load fresh
-        }, 500); // 500ms debounce
+            loadUsers(false);
+        }, 500);
         return () => clearTimeout(timer);
     }, [searchText]);
 
@@ -318,6 +311,14 @@ export default function FindFriendsScreen() {
                         {locationText && (
                             <Text style={styles.location}>📍 {locationText}</Text>
                         )}
+
+                        {/* Star Rating */}
+                        <StarRating
+                            rating={item.averageRating || 0}
+                            reviewCount={item.reviewCount || 0}
+                            size="small"
+                        />
+
                         {item.bio && (
                             <Text style={styles.bio} numberOfLines={2}>
                                 {item.bio}
@@ -551,7 +552,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: COLORS.textSecondary,
     },
-    // User Card
     userCard: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -617,8 +617,8 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: COLORS.textSecondary,
         lineHeight: 18,
+        marginTop: 4,
     },
-    // Skills
     skillsRow: {
         marginTop: 4,
         paddingTop: 8,
@@ -642,7 +642,6 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: COLORS.textPrimary,
     },
-    // Actions
     actionContainer: {
         borderTopWidth: 1,
         borderTopColor: COLORS.lightGray,
@@ -673,7 +672,6 @@ const styles = StyleSheet.create({
     bottomSpacer: {
         height: 40,
     },
-    // Modal
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
