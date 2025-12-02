@@ -1,22 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
     ActivityIndicator,
+    Alert,
     RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
     TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { useRouter } from 'expo-router';
 
-// friend data structure with profile details
+// --- Theme Configuration (Matched to your other files) ---
+const COLORS = {
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
+    background: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    lightGray: '#F9FAFB',
+    accentGreen: '#10B981',
+    accentRed: '#EF4444',
+};
+
+// Friend data structure
 interface Friend {
     id: string;
     userId: string;
@@ -30,7 +45,6 @@ interface Friend {
     location?: string;
 }
 
-// screen showing user's friends list with search and actions
 export default function FriendsListScreen() {
     const { user } = useAuth();
     const router = useRouter();
@@ -41,12 +55,10 @@ export default function FriendsListScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
 
-    // load friends on mount
     useEffect(() => {
         loadFriends();
     }, []);
 
-    // fetch friends list with full profile details
     const loadFriends = async () => {
         if (!user) return;
 
@@ -58,53 +70,49 @@ export default function FriendsListScreen() {
 
             const friendsList: Friend[] = [];
 
-            // load each friend's profile for additional details
             for (const docSnap of querySnapshot.docs) {
                 const friendData = docSnap.data();
+                
+                // Safe default in case friendName is missing in the friend record
+                let finalFriendName = friendData.friendName || 'User';
+                let finalFriendEmail = friendData.friendEmail || '';
+                let status: 'online' | 'offline' = 'offline';
+                let skillsTeaching: string[] = [];
+                let skillsLearning: string[] = [];
+                let location = '';
 
-                // fetch friend's user profile for status, skills, etc
                 try {
+                    // Fetch latest profile details
                     const friendProfileDoc = await getDoc(doc(db, 'users', friendData.friendId));
                     if (friendProfileDoc.exists()) {
                         const profileData = friendProfileDoc.data();
-                        friendsList.push({
-                            id: docSnap.id,
-                            userId: friendData.userId,
-                            friendId: friendData.friendId,
-                            friendName: friendData.friendName,
-                            friendEmail: friendData.friendEmail,
-                            createdAt: friendData.createdAt,
-                            status: profileData.status || 'offline',
-                            skillsTeaching: profileData.skillsTeaching || [],
-                            skillsLearning: profileData.skillsLearning || [],
-                            location: profileData.location || '',
-                        });
-                    } else {
-                        // fallback if profile doesn't exist
-                        friendsList.push({
-                            id: docSnap.id,
-                            userId: friendData.userId,
-                            friendId: friendData.friendId,
-                            friendName: friendData.friendName,
-                            friendEmail: friendData.friendEmail,
-                            createdAt: friendData.createdAt,
-                        });
+                        // 1. FIX: Prioritize profile name, fallback to existing data, then 'User'
+                        finalFriendName = profileData.displayName || finalFriendName;
+                        finalFriendEmail = profileData.email || finalFriendEmail;
+                        status = profileData.status || 'offline';
+                        skillsTeaching = profileData.skillsTeaching || [];
+                        skillsLearning = profileData.skillsLearning || [];
+                        location = profileData.location || '';
                     }
                 } catch (error) {
-                    console.error('Error loading friend profile:', error);
-                    // add friend with basic info on error
-                    friendsList.push({
-                        id: docSnap.id,
-                        userId: friendData.userId,
-                        friendId: friendData.friendId,
-                        friendName: friendData.friendName,
-                        friendEmail: friendData.friendEmail,
-                        createdAt: friendData.createdAt,
-                    });
+                    console.error('Error fetching profile for friend:', friendData.friendId, error);
                 }
+
+                friendsList.push({
+                    id: docSnap.id,
+                    userId: friendData.userId,
+                    friendId: friendData.friendId,
+                    friendName: finalFriendName, 
+                    friendEmail: finalFriendEmail,
+                    createdAt: friendData.createdAt,
+                    status,
+                    skillsTeaching,
+                    skillsLearning,
+                    location,
+                });
             }
 
-            // sort by most recently added
+            // Sort by most recently added
             friendsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
             setFriends(friendsList);
@@ -118,27 +126,26 @@ export default function FriendsListScreen() {
         }
     };
 
-    // filter friends by search text
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
             setFilteredFriends(friends);
         } else {
+            const lowerText = text.toLowerCase();
             const filtered = friends.filter(
                 (friend) =>
-                    friend.friendName.toLowerCase().includes(text.toLowerCase()) ||
-                    friend.friendEmail.toLowerCase().includes(text.toLowerCase()) ||
-                    friend.location?.toLowerCase().includes(text.toLowerCase())
+                    (friend.friendName && friend.friendName.toLowerCase().includes(lowerText)) ||
+                    (friend.friendEmail && friend.friendEmail.toLowerCase().includes(lowerText)) ||
+                    (friend.location && friend.location.toLowerCase().includes(lowerText))
             );
             setFilteredFriends(filtered);
         }
     };
 
-    // remove friend with confirmation and cleanup both friendship records
     const handleRemoveFriend = (friendId: string, friendName: string) => {
         Alert.alert(
             'Remove Friend',
-            `Are you sure you want to remove ${friendName} from your friends?`,
+            `Are you sure you want to remove ${friendName}? Chat history will be deleted.`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -147,51 +154,55 @@ export default function FriendsListScreen() {
                     onPress: async () => {
                         try {
                             if (!user) return;
-
-                            // delete friendship records for both users
                             const friendsRef = collection(db, 'friends');
 
-                            // delete current user's friendship record
-                            const q1 = query(
-                                friendsRef,
-                                where('userId', '==', user.uid),
-                                where('friendId', '==', friendId)
-                            );
-                            const snapshot1 = await getDocs(q1);
-                            for (const doc of snapshot1.docs) {
-                                await deleteDoc(doc.ref);
+                            // Delete your record of them
+                            const q1 = query(friendsRef, where('userId', '==', user.uid), where('friendId', '==', friendId));
+                            const snap1 = await getDocs(q1);
+                            snap1.forEach(async (d) => await deleteDoc(d.ref));
+
+                            // Delete their record of you
+                            const q2 = query(friendsRef, where('userId', '==', friendId), where('friendId', '==', user.uid));
+                            const snap2 = await getDocs(q2);
+                            snap2.forEach(async (d) => await deleteDoc(d.ref));
+
+                            // Update Friend Counts
+                            const userDoc = await getDoc(doc(db, 'users', user.uid));
+                            const friendDoc = await getDoc(doc(db, 'users', friendId));
+                            
+                            if (userDoc.exists()) {
+                                const current = userDoc.data().friendCount || 0;
+                                await updateDoc(doc(db, 'users', user.uid), { friendCount: Math.max(0, current - 1) });
+                            }
+                            if (friendDoc.exists()) {
+                                const current = friendDoc.data().friendCount || 0;
+                                await updateDoc(doc(db, 'users', friendId), { friendCount: Math.max(0, current - 1) });
                             }
 
-                            // delete friend's friendship record
-                            const q2 = query(
-                                friendsRef,
-                                where('userId', '==', friendId),
-                                where('friendId', '==', user.uid)
+                            // Delete chat history between the two users
+                            const conversationsRef = collection(db, 'conversations');
+                            
+                            // Find the conversation where participants include BOTH users
+                            const chatQuery = query(
+                                conversationsRef, 
+                                where('participants', 'array-contains', user.uid)
                             );
-                            const snapshot2 = await getDocs(q2);
-                            for (const doc of snapshot2.docs) {
-                                await deleteDoc(doc.ref);
-                            }
-
-                            // update friend counts for both users
-                            const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
-                            const friendUserDoc = await getDoc(doc(db, 'users', friendId));
-
-                            const currentFriendCount = currentUserDoc.data()?.friendCount || 0;
-                            const friendFriendCount = friendUserDoc.data()?.friendCount || 0;
-
-                            await updateDoc(doc(db, 'users', user.uid), {
-                                friendCount: Math.max(0, currentFriendCount - 1),
+                            
+                            const chatSnap = await getDocs(chatQuery);
+                            
+                            chatSnap.forEach(async (chatDoc) => {
+                                const data = chatDoc.data();
+                                // Check if the other participant is the friend we are removing
+                                if (data.participants && data.participants.includes(friendId)) {
+                                    await deleteDoc(chatDoc.ref);
+                                    console.log(`Deleted conversation: ${chatDoc.id}`);
+                                }
                             });
 
-                            await updateDoc(doc(db, 'users', friendId), {
-                                friendCount: Math.max(0, friendFriendCount - 1),
-                            });
-
-                            Alert.alert('Removed', `${friendName} has been removed from your friends`);
-                            loadFriends();
-                        } catch (error: any) {
-                            console.error('Error removing friend:', error);
+                            Alert.alert('Success', 'Friend and chat history removed');
+                            loadFriends(); // Refresh the list
+                        } catch (error) {
+                            console.error(error);
                             Alert.alert('Error', 'Failed to remove friend');
                         }
                     },
@@ -200,97 +211,90 @@ export default function FriendsListScreen() {
         );
     };
 
-    // show friend profile in alert dialog
-    const handleViewProfile = (friend: Friend) => {
-        Alert.alert(
-            friend.friendName,
-            `Email: ${friend.friendEmail}\n` +
-            `Location: ${friend.location || 'Not specified'}\n\n` +
-            `Can teach:\n${friend.skillsTeaching?.join(', ') || 'No skills listed'}\n\n` +
-            `Wants to learn:\n${friend.skillsLearning?.join(', ') || 'No learning goals'}`
-        );
-    };
-
     const onRefresh = () => {
         setRefreshing(true);
         loadFriends();
     };
 
-    // render individual friend card with actions
     const renderFriendCard = (friend: Friend) => {
         const isOnline = friend.status === 'online';
+        // 2. FIX: Ensure name is safe to use
+        const displayName = friend.friendName || 'User';
+
+        // Fix safe location display
+        let locationText = null;
+        if (friend.location) {
+            if (typeof friend.location === 'string') {
+                locationText = friend.location;
+            } else if (typeof friend.location === 'object') {
+                locationText = "Location Shared";
+            }
+        }
 
         return (
             <TouchableOpacity
                 key={friend.id}
                 style={styles.friendCard}
-                onPress={() => handleViewProfile(friend)}
+                onPress={() => router.push({
+                    pathname: '/(app)/user_profile',
+                    params: { userId: friend.friendId } 
+                })}
                 activeOpacity={0.7}
             >
                 <View style={styles.friendContent}>
-                    {/* avatar with online status */}
+                    {/* Avatar */}
                     <View style={styles.avatarContainer}>
                         <View style={styles.friendAvatar}>
                             <Text style={styles.friendAvatarText}>
-                                {friend.friendName.charAt(0).toUpperCase()}
+                                {displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
-                        <View
-                            style={[
-                                styles.statusBadge,
-                                { backgroundColor: isOnline ? '#4CAF50' : '#ccc' },
-                            ]}
-                        />
+                        {isOnline && <View style={styles.onlineBadge} />}
                     </View>
 
-                    {/* friend info and skills preview */}
+                    {/* Info */}
                     <View style={styles.friendInfo}>
-                        <Text style={styles.friendName}>{friend.friendName}</Text>
-                        <Text style={styles.friendEmail}>{friend.friendEmail}</Text>
-                        {friend.location && (
-                            <Text style={styles.location}>📍 {friend.location}</Text>
+                        <Text style={styles.friendName}>{displayName}</Text>
+                        
+                        {locationText && (
+                            <Text style={styles.location}>📍 {locationText}</Text>
                         )}
 
-                        {/* preview of skills they can teach */}
                         {friend.skillsTeaching && friend.skillsTeaching.length > 0 && (
-                            <View style={styles.skillsPreview}>
-                                <Text style={styles.skillsLabel}>🎓 Teaches: </Text>
-                                <Text style={styles.skillsText} numberOfLines={1}>
-                                    {friend.skillsTeaching.slice(0, 2).join(', ')}
-                                    {friend.skillsTeaching.length > 2 && ` +${friend.skillsTeaching.length - 2}`}
-                                </Text>
-                            </View>
+                            <Text style={styles.skillsText} numberOfLines={1}>
+                                Teaches: {friend.skillsTeaching.join(', ')}
+                            </Text>
                         )}
                     </View>
 
-                    {/* action buttons for message and remove */}
+                    {/* Actions */}
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
                             style={styles.messageButton}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                // generate conversation ID using sorted user IDs
                                 const conversationId = [user?.uid, friend.friendId].sort().join('_');
                                 router.push({
                                     pathname: '/(app)/chat-room',
                                     params: {
                                         conversationId,
                                         otherUserId: friend.friendId,
-                                        otherUserName: friend.friendName,
+                                        otherUserName: displayName,
                                     },
                                 });
                             }}
                         >
-                            <Text style={styles.messageButtonText}>💬</Text>
+                            <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.accentGreen} />
                         </TouchableOpacity>
+                        
                         <TouchableOpacity
                             style={styles.removeButton}
                             onPress={(e) => {
                                 e.stopPropagation();
-                                handleRemoveFriend(friend.friendId, friend.friendName);
+                                handleRemoveFriend(friend.friendId, displayName);
                             }}
                         >
-                            <Text style={styles.removeButtonText}>✕</Text>
+                            <Ionicons name="trash-outline" size={20} color={COLORS.accentRed} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -298,68 +302,63 @@ export default function FriendsListScreen() {
         );
     };
 
-    // show loading state
-    if (loading) {
+    if (loading && !refreshing) {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#007AFF" />
-                    <Text style={styles.loadingText}>Loading friends...</Text>
+                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
                 </View>
             </SafeAreaView>
         );
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
+                    <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+                <Text style={styles.title}>My Friends</Text>
+                <TouchableOpacity
+                    onPress={() => router.push('/find-friends')}
+                    style={styles.addButton}
+                >
+                    <Ionicons name="person-add-outline" size={22} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+            </View>
+
+            {/* Search */}
+            <View style={styles.searchContainer}>
+                <View style={styles.searchBox}>
+                    <Ionicons name="search" size={18} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search friends..."
+                        value={searchText}
+                        onChangeText={handleSearch}
+                        placeholderTextColor={COLORS.textSecondary}
+                    />
+                </View>
+            </View>
+
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primaryBrand} />
                 }
+                contentContainerStyle={styles.listContent}
             >
-                {/* header with back and add friend buttons */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <Text style={styles.backButtonText}>←</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.title}>My Friends</Text>
-                    <TouchableOpacity
-                        onPress={() => router.push('/find-friends')}
-                        style={styles.addButton}
-                    >
-                        <Text style={styles.addButtonText}>+ Add</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {/* search bar */}
-                <View style={styles.searchContainer}>
-                    <TextInput
-                        style={styles.searchBox}
-                        placeholder="Search friends..."
-                        value={searchText}
-                        onChangeText={handleSearch}
-                        placeholderTextColor="#999"
-                    />
-                </View>
-
-                {/* friend count */}
                 <Text style={styles.resultCount}>
                     {filteredFriends.length} {filteredFriends.length === 1 ? 'friend' : 'friends'}
                 </Text>
 
-                {/* show empty state or friends list */}
                 {filteredFriends.length === 0 ? (
                     <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>👥</Text>
+                        <Ionicons name="people-outline" size={64} color={COLORS.border} />
                         <Text style={styles.emptyText}>
                             {searchText ? 'No friends found' : 'No friends yet'}
-                        </Text>
-                        <Text style={styles.emptySubtext}>
-                            {searchText
-                                ? 'Try a different search term'
-                                : 'Start connecting with others to build your network'}
                         </Text>
                         {!searchText && (
                             <TouchableOpacity
@@ -371,12 +370,8 @@ export default function FriendsListScreen() {
                         )}
                     </View>
                 ) : (
-                    <View style={styles.friendsList}>
-                        {filteredFriends.map(renderFriendCard)}
-                    </View>
+                    filteredFriends.map(renderFriendCard)
                 )}
-
-                <View style={styles.bottomSpacer} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -385,90 +380,80 @@ export default function FriendsListScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: COLORS.background,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 12,
-        fontSize: 16,
-        color: '#666',
-    },
     content: {
         flex: 1,
+    },
+    listContent: {
+        paddingBottom: 40,
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 20,
-        paddingTop: 10,
-        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        backgroundColor: COLORS.background,
         borderBottomWidth: 1,
-        borderBottomColor: '#e0e0e0',
+        borderBottomColor: COLORS.border,
     },
     backButton: {
-        width: 40,
-        height: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    backButtonText: {
-        fontSize: 24,
-        color: '#007AFF',
-        fontWeight: 'bold',
+        padding: 4,
     },
     title: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
+        fontSize: 18,
+        fontWeight: '800',
+        color: COLORS.textPrimary,
     },
     addButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
-    },
-    addButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 14,
+        padding: 4,
     },
     searchContainer: {
         padding: 20,
-        paddingBottom: 12,
+        paddingBottom: 10,
     },
     searchBox: {
-        backgroundColor: '#fff',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.lightGray,
         borderRadius: 12,
-        padding: 12,
-        fontSize: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
         borderWidth: 1,
-        borderColor: '#ddd',
-        color: '#333',
+        borderColor: COLORS.border,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 16,
+        color: COLORS.textPrimary,
     },
     resultCount: {
         fontSize: 14,
-        color: '#666',
+        color: COLORS.textSecondary,
         paddingHorizontal: 20,
         marginBottom: 12,
     },
-    friendsList: {
-        paddingHorizontal: 20,
-    },
+    // Friend Card
     friendCard: {
-        backgroundColor: '#fff',
+        backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
         padding: 16,
+        marginHorizontal: 20,
         marginBottom: 12,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        // Soft Shadow
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
     },
     friendContent: {
         flexDirection: 'row',
@@ -479,127 +464,93 @@ const styles = StyleSheet.create({
         marginRight: 12,
     },
     friendAvatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: '#007AFF',
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
     },
     friendAvatarText: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontSize: 20,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
-    statusBadge: {
+    onlineBadge: {
         position: 'absolute',
-        bottom: 2,
-        right: 2,
+        bottom: 0,
+        right: 0,
         width: 14,
         height: 14,
         borderRadius: 7,
+        backgroundColor: COLORS.accentGreen,
         borderWidth: 2,
-        borderColor: '#fff',
+        borderColor: COLORS.cardBackground,
     },
     friendInfo: {
         flex: 1,
+        justifyContent: 'center',
     },
     friendName: {
         fontSize: 16,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 4,
-    },
-    friendEmail: {
-        fontSize: 13,
-        color: '#666',
-        marginBottom: 4,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginBottom: 2,
     },
     location: {
         fontSize: 12,
-        color: '#999',
-        marginBottom: 6,
-    },
-    skillsPreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 4,
-    },
-    skillsLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#666',
+        color: COLORS.textSecondary,
+        marginBottom: 4,
     },
     skillsText: {
         fontSize: 12,
-        color: '#007AFF',
-        flex: 1,
+        color: COLORS.textSecondary,
+        fontStyle: 'italic',
     },
+    // Actions
     actionButtons: {
-        flexDirection: 'column',
+        flexDirection: 'row',
         gap: 8,
         marginLeft: 8,
     },
     messageButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#E3F2FD',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#ECFDF5', // Light green bg
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    messageButtonText: {
-        fontSize: 20,
     },
     removeButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#FFEBEE',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#FEF2F2', // Light red bg
         justifyContent: 'center',
         alignItems: 'center',
     },
-    removeButtonText: {
-        fontSize: 20,
-        color: '#F44336',
-        fontWeight: 'bold',
-    },
+    // Empty State
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 60,
-        paddingHorizontal: 40,
-    },
-    emptyIcon: {
-        fontSize: 64,
-        marginBottom: 16,
     },
     emptyText: {
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '600',
-        color: '#333',
+        color: COLORS.textPrimary,
+        marginTop: 16,
         marginBottom: 8,
-        textAlign: 'center',
-    },
-    emptySubtext: {
-        fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 24,
-        lineHeight: 22,
     },
     findFriendsButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
+        marginTop: 12,
+        backgroundColor: COLORS.primaryBrand,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
         borderRadius: 8,
     },
     findFriendsButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    bottomSpacer: {
-        height: 40,
+        color: COLORS.primaryBrandText,
+        fontWeight: '700',
     },
 });

@@ -86,6 +86,7 @@ export default function TabLayout() {
             <Tabs.Screen name="browse-skills" options={{ href: null }} />
             <Tabs.Screen name="manage-skills" options={{ href: null }} />
             <Tabs.Screen name="settings" options={{ href: null}} />
+            <Tabs.Screen name="user_profile" options={{ href: null }} />
         </Tabs>
     );
 }

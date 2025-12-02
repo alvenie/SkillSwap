@@ -245,33 +245,24 @@ export default function ProfileScreen() {
                         <Text style={styles.userName}>{profile?.displayName || 'User'}</Text>
                         <Text style={styles.userEmail}>{profile?.email}</Text>
                         
-                        {/* {profile?.location && (
-                            <View style={styles.locationRow}>
-                                <Ionicons name="location-outline" size={16} color={COLORS.textSecondary} />
-                                <Text style={styles.locationText}>{profile.location}</Text>
-                            </View>
-                        )} */}
+                        <Text style={styles.bioText}>{profile?.bio || 'No bio yet'}</Text>
+                    </View>
 
-                        {profile?.bio && (
-                            <Text style={styles.bioText}>{profile.bio}</Text>
-                        )}
-
-                        {/* Stats Row */}
-                        <View style={styles.statsRow}>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{friends.length}</Text>
-                                <Text style={styles.statLabel}>Friends</Text>
-                            </View>
-                            <View style={styles.statDivider} />
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{profile?.skillsTeaching.length || 0}</Text>
-                                <Text style={styles.statLabel}>Teaches</Text>
-                            </View>
-                            <View style={styles.statDivider} />
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{profile?.skillsLearning.length || 0}</Text>
-                                <Text style={styles.statLabel}>Learns</Text>
-                            </View>
+                    {/* Stats Row */}
+                    <View style={styles.statsRow}>
+                        <View style={styles.statItem}>
+                            <Text style={styles.statValue}>{friends.length}</Text>
+                            <Text style={styles.statLabel}>Friends</Text>
+                        </View>
+                        <View style={styles.statDivider} />
+                        <View style={styles.statItem}>
+                            <Text style={styles.statValue}>{profile?.skillsTeaching?.length || 0}</Text>
+                            <Text style={styles.statLabel}>Teaches</Text>
+                        </View>
+                        <View style={styles.statDivider} />
+                        <View style={styles.statItem}>
+                            <Text style={styles.statValue}>{profile?.skillsLearning?.length || 0}</Text>
+                            <Text style={styles.statLabel}>Learns</Text>
                         </View>
                     </View>
                 </View>
@@ -284,23 +275,18 @@ export default function ProfileScreen() {
                             <Text style={styles.linkText}>Manage</Text>
                         </TouchableOpacity>
                     </View>
-                    
                     <View style={styles.skillsCard}>
                         <View style={styles.skillRow}>
                             <Text style={styles.skillLabel}>Teaches:</Text>
                             <Text style={styles.skillList}>
-                                {profile?.skillsTeaching && profile.skillsTeaching.length > 0 
-                                    ? profile.skillsTeaching.join(', ') 
-                                    : 'No skills listed'}
+                                {profile?.skillsTeaching && profile.skillsTeaching.length > 0 ? profile.skillsTeaching.join(', ') : 'No skills listed'}
                             </Text>
                         </View>
                         <View style={styles.divider} />
                         <View style={styles.skillRow}>
                             <Text style={styles.skillLabel}>Learns:</Text>
                             <Text style={styles.skillList}>
-                                {profile?.skillsLearning && profile.skillsLearning.length > 0 
-                                    ? profile.skillsLearning.join(', ') 
-                                    : 'No interests listed'}
+                                {profile?.skillsLearning && profile.skillsLearning.length > 0 ? profile.skillsLearning.join(', ') : 'No interests listed'}
                             </Text>
                         </View>
                     </View>
@@ -322,16 +308,10 @@ export default function ProfileScreen() {
                                     </View>
                                 </View>
                                 <View style={styles.requestActions}>
-                                    <TouchableOpacity 
-                                        style={styles.rejectButton} 
-                                        onPress={() => handleRejectRequest(req.id)}
-                                    >
+                                    <TouchableOpacity style={styles.rejectButton} onPress={() => handleRejectRequest(req.id)} >
                                         <Ionicons name="close" size={20} color={COLORS.textSecondary} />
                                     </TouchableOpacity>
-                                    <TouchableOpacity 
-                                        style={styles.acceptButton}
-                                        onPress={() => handleAcceptRequest(req)}
-                                    >
+                                    <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(req)} >
                                         <Ionicons name="checkmark" size={20} color={COLORS.primaryBrandText} />
                                     </TouchableOpacity>
                                 </View>
@@ -344,9 +324,16 @@ export default function ProfileScreen() {
                 <View style={styles.sectionContainer}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Friends ({friends.length})</Text>
-                        <TouchableOpacity onPress={() => router.push('/(app)/find-friends')}>
-                            <Text style={styles.linkText}>+ Find New</Text>
-                        </TouchableOpacity>
+                        
+                        {/* 1. Added Navigation to Friends List Page */}
+                        <View style={{flexDirection: 'row', gap: 16}}>
+                            <TouchableOpacity onPress={() => router.push('/(app)/friends-list')}>
+                                <Text style={styles.linkText}>View All</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => router.push('/(app)/find-friends')}>
+                                <Text style={styles.linkText}>+ Find New</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     {friends.length === 0 ? (
@@ -354,7 +341,7 @@ export default function ProfileScreen() {
                             <Text style={styles.emptyText}>No friends yet.</Text>
                         </View>
                     ) : (
-                        friends.map(friend => (
+                        friends.slice(0, 3).map(friend => ( // Only showing first 3 here now
                             <View key={friend.id} style={styles.friendCard}>
                                 <View style={styles.friendInfoContainer}>
                                     <View style={styles.miniAvatar}>
@@ -362,18 +349,15 @@ export default function ProfileScreen() {
                                     </View>
                                     <Text style={styles.friendName}>{friend.displayName}</Text>
                                 </View>
-                                <TouchableOpacity 
-                                    style={styles.messageButton}
-                                    onPress={() => handleMessageFriend(friend)}
-                                >
-                                    <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.primaryBrandText} />
+                                <TouchableOpacity style={styles.iconButton} onPress={() => handleMessageFriend(friend)}>
+                                    <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.accentGreen} />
                                 </TouchableOpacity>
                             </View>
                         ))
                     )}
                 </View>
-
-                <View style={{ height: 40 }} />
+                
+                <View style={{height: 30}} />
             </ScrollView>
         </SafeAreaView>
     );
@@ -403,21 +387,29 @@ const styles = StyleSheet.create({
         color: COLORS.textPrimary,
     },
     settingsButton: {
-        padding: 8,
-        backgroundColor: COLORS.lightGray,
-        borderRadius: 20,
+        padding: 4,
     },
     content: {
         flex: 1,
     },
     scrollContent: {
-        padding: 20,
-        paddingTop: 10,
+        paddingBottom: 40,
     },
     // Profile Card
     profileCard: {
+        margin: 20,
+        marginTop: 10,
+        backgroundColor: COLORS.cardBackground,
+        borderRadius: 20,
+        padding: 20,
         alignItems: 'center',
-        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
     },
     profileHeader: {
         alignItems: 'center',
@@ -434,17 +426,10 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.primaryBrand,
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 4,
-        borderColor: '#FFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 5,
     },
     avatarText: {
         fontSize: 40,
-        fontWeight: 'bold',
+        fontWeight: '700',
         color: COLORS.primaryBrandText,
     },
     editIconBtn: {
@@ -452,10 +437,13 @@ const styles = StyleSheet.create({
         bottom: 0,
         right: 0,
         backgroundColor: COLORS.textPrimary,
-        padding: 8,
-        borderRadius: 20,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
         borderWidth: 2,
-        borderColor: '#FFF',
+        borderColor: '#fff',
     },
     userName: {
         fontSize: 22,
@@ -517,7 +505,8 @@ const styles = StyleSheet.create({
     },
     // Sections
     sectionContainer: {
-        marginBottom: 24,
+        marginHorizontal: 20,
+        marginBottom: 20,
     },
     sectionHeader: {
         flexDirection: 'row',
@@ -533,7 +522,8 @@ const styles = StyleSheet.create({
     linkText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#B45309',
+        color: COLORS.primaryBrandText, // Or accent color
+        color: '#D97706', // Darker yellow/orange for links
     },
     // Skills Card
     skillsCard: {
@@ -545,41 +535,58 @@ const styles = StyleSheet.create({
     },
     skillRow: {
         flexDirection: 'row',
-        alignItems: 'center',
-    },
-    skillLabel: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: COLORS.textSecondary,
-        width: 70,
-    },
-    skillList: {
-        fontSize: 14,
-        color: COLORS.textPrimary,
-        flex: 1,
-        lineHeight: 20,
+        paddingVertical: 4,
     },
     divider: {
         height: 1,
-        backgroundColor: COLORS.lightGray,
+        backgroundColor: COLORS.border,
         marginVertical: 12,
+    },
+    skillLabel: {
+        width: 70,
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
+    },
+    skillList: {
+        flex: 1,
+        fontSize: 14,
+        color: COLORS.textPrimary,
+        lineHeight: 20,
     },
     // Request Card
     requestCard: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
         backgroundColor: COLORS.cardBackground,
         padding: 12,
         borderRadius: 12,
         marginBottom: 12,
         borderWidth: 1,
         borderColor: COLORS.border,
-        justifyContent: 'space-between',
+        shadowColor: '#000',
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 1,
     },
     requestInfo: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
+    },
+    miniAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.primaryBrand,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    miniAvatarText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
     requestName: {
         fontSize: 16,
@@ -627,35 +634,22 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 12,
     },
-    miniAvatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: COLORS.primaryBrand,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    miniAvatarText: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: COLORS.primaryBrandText,
-    },
     friendName: {
         fontSize: 16,
         fontWeight: '600',
         color: COLORS.textPrimary,
     },
-    messageButton: {
+    iconButton: {
         padding: 8,
-        backgroundColor: COLORS.lightGray,
+        backgroundColor: '#F0FDF4',
         borderRadius: 20,
     },
     emptyState: {
-        padding: 20,
         alignItems: 'center',
+        paddingVertical: 20,
     },
     emptyText: {
         color: COLORS.textSecondary,
-        fontSize: 14,
+        fontStyle: 'italic',
     },
 });

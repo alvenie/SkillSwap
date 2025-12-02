@@ -36,8 +36,8 @@ import { generateConversationId } from '../../utils/conversationUtils';
 
 // Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D', // Mustard Yellow
-    primaryBrandText: '#1F2937', // Dark Gray text for contrast
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
     textPrimary: '#1F2937',
@@ -51,7 +51,7 @@ const COLORS = {
     lightGray: '#F9FAFB',
 };
 
-// --- Interfaces ---
+// Interfaces
 interface BaseMessage {
     id: string;
     senderId: string;
@@ -86,7 +86,8 @@ export default function ChatRoomScreen() {
     const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
     const otherUserId = params.otherUserId as string;
-    const otherUserName = params.otherUserName as string;
+    // Initial fallback, but we will fetch the real one
+    const [headerTitle, setHeaderTitle] = useState(params.otherUserName as string || 'Chat');
 
     // Chat state
     const [conversationId, setConversationId] = useState<string>('');
@@ -97,7 +98,7 @@ export default function ChatRoomScreen() {
     const [conversationReady, setConversationReady] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    // Modals State (Only Payment Modal remains)
+    // Modals State
     const [showPaymentModal, setShowPaymentModal] = useState(false);
 
     // Payment Form State
@@ -109,19 +110,35 @@ export default function ChatRoomScreen() {
     // Meetup modal state
     const [showMeetupModal, setShowMeetupModal] = useState(false);
 
-    const hasShownAuthError = useRef(false);
-    const hasShownParamsError = useRef(false);
     const isInitializing = useRef(false);
 
-    // 1. Initialize Conversation ID
+    // Initialize Conversation ID & Fetch Fresh Header Name
     useEffect(() => {
         if (authLoading || !user) return;
+        
+        // Generate ID
         const paramConversationId = params.conversationId as string;
         const finalConversationId = paramConversationId || generateConversationId(user.uid, otherUserId);
         setConversationId(finalConversationId);
+
+        // Fetch Fresh Other User Name (Fixes stale title issue)
+        const fetchOtherProfile = async () => {
+            try {
+                const userDoc = await getDoc(doc(db, 'users', otherUserId));
+                if (userDoc.exists()) {
+                    const data = userDoc.data();
+                    const freshName = data.displayName || data.email || 'User';
+                    setHeaderTitle(freshName);
+                }
+            } catch (error) {
+                console.log("Could not fetch other user profile");
+            }
+        };
+        fetchOtherProfile();
+
     }, [authLoading, user, otherUserId, params.conversationId]);
 
-    // 2. Initialize Chat Document
+    // Initialize Chat Document
     useEffect(() => {
         if (!user || !conversationId || !otherUserId || isInitializing.current) return;
         
@@ -135,8 +152,9 @@ export default function ChatRoomScreen() {
                     const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
                     const currentUserName = currentUserDoc.data()?.displayName || user.email || 'User';
                     
-                    let nameToUse = otherUserName || 'User';
-                    if (!otherUserName) {
+                    // We already fetched this for the header, but needed here for DB
+                    let nameToUse = headerTitle; 
+                    if (nameToUse === 'Chat' || !nameToUse) {
                          const otherDoc = await getDoc(doc(db, 'users', otherUserId));
                          nameToUse = otherDoc.data()?.displayName || 'User';
                     }
@@ -164,7 +182,7 @@ export default function ChatRoomScreen() {
         init();
     }, [user, conversationId, otherUserId]);
 
-    // 3. Listen for Messages
+    // Listen for Messages
     useEffect(() => {
         if (!conversationReady || !conversationId) return;
 
@@ -186,12 +204,13 @@ export default function ChatRoomScreen() {
         return () => unsubscribe();
     }, [conversationReady, conversationId]);
 
-    // --- Actions ---
+    // Actions
 
     const sendMessage = async () => {
         if (!messageText.trim() || !user) return;
         setSending(true);
         try {
+            // FIX: Fetch fresh display name to update the chat record
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
             const currentUserName = currentUserData?.displayName || user.email || 'User';
@@ -201,82 +220,70 @@ export default function ChatRoomScreen() {
             await addDoc(messagesRef, {
                 type: 'text',
                 senderId: user.uid,
-                senderName: user.email, 
+                senderName: currentUserName, // Use FRESH name
                 text: messageText.trim(),
                 timestamp: Timestamp.now(),
                 read: false
             });
             
+            // Update participantNames map so Chat List updates for everyone
             await updateDoc(doc(db, 'conversations', conversationId), {
                 lastMessage: messageText.trim(),
                 lastMessageTime: new Date().toISOString(),
-                lastMessageSender: user.uid
+                lastMessageSender: user.uid,
+                [`participantNames.${user.uid}`]: currentUserName 
             });
+            
+            setMessageText('');
         } catch (error: any) {
-            console.error('❌ Error sending message:', error);
-            Alert.alert('Error', 'Failed to send message. Please check your connection.');
+            console.error('Error sending message:', error);
+            Alert.alert('Error', 'Failed to send message.');
         } finally {
             setSending(false);
         }
     };
 
-    // Send payment request with all required fields
     const sendPaymentRequest = async () => {
-        if (!paymentAmount || !paymentDescription) return Alert.alert('Missing fields');
+        const amount = parseFloat(paymentAmount);
+        if (!amount || isNaN(amount) || !paymentDescription) {
+            return Alert.alert('Missing fields', 'Please enter a valid amount and description.');
+        }
+
         setSendingPaymentRequest(true);
         try {
-            console.log('💰 Sending payment request...');
-
+            // Fetch fresh name here too
+            if (!user?.uid) throw new Error('User not authenticated');
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
-            const currentUserName = currentUserData?.displayName || user.email || 'User';
+            const currentUserName = currentUserData?.displayName || user?.email || 'User';
 
             const messagesRef = collection(db, 'conversations', conversationId, 'messages');
 
-            const paymentRequestData = {
+            await addDoc(messagesRef, {
                 type: 'payment_request',
                 senderId: user!.uid,
-                senderName: user!.email,
+                senderName: currentUserName,
                 amount: amount,
                 description: paymentDescription,
                 status: 'pending',
                 timestamp: Timestamp.now(),
                 read: false,
-            };
+            });
 
-            console.log('📤 Payment request data:', paymentRequestData);
-
-            await addDoc(messagesRef, paymentRequestData);
-
-            console.log('✅ Payment request sent successfully');
-
-            const conversationRef = doc(db, 'conversations', conversationId);
-            const conversationDoc = await getDoc(conversationRef);
-            const conversationData = conversationDoc.data();
-            const currentUnreadCount = conversationData?.unreadCount?.[otherUserId] || 0;
-
-            await updateDoc(conversationRef, {
-                lastMessage: `💰 Payment request: $${amount.toFixed(2)}`,
+            await updateDoc(doc(db, 'conversations', conversationId), {
+                lastMessage: `Payment request: $${amount.toFixed(2)}`,
                 lastMessageTime: new Date().toISOString(),
-                lastMessageSender: user!.uid
+                lastMessageSender: user!.uid,
+                [`participantNames.${user?.uid}`]: currentUserName 
             });
 
             setShowPaymentModal(false);
             setPaymentAmount('');
             setPaymentDescription('');
-
             Alert.alert('Success', 'Payment request sent!');
         } catch (error: any) {
-            console.error('❌ Error sending payment request:', error);
-
-            if (error.code === 'permission-denied') {
-                Alert.alert(
-                    'Permission Denied',
-                    'Unable to send payment request. Please make sure your Firebase rules are updated correctly.'
-                );
-            } else {
-                Alert.alert('Error', `Failed to send payment request: ${error.message}`);
-            }
+            console.error('Error sending payment request:', error);
+            Alert.alert('Error', `Failed: ${error.message}`);
         } finally {
             setSendingPaymentRequest(false);
         }
@@ -285,125 +292,61 @@ export default function ChatRoomScreen() {
     const handlePayment = async (message: PaymentRequestMessage) => {
         setProcessingPayment(message.id);
         try {
-            console.log('💳 Processing payment...');
+            const paymentData = await paymentService.createPaymentIntent(
+                message.amount,
+                'usd',
+                message.description,
+                undefined
+            );
 
-            let paymentData;
-            try {
-                paymentData = await paymentService.createPaymentIntent(
-                    message.amount,
-                    'usd',
-                    message.description,
-                    undefined
-                );
-            } catch (apiError: any) {
-                console.error('❌ API Error:', apiError);
-                Alert.alert('Error', 'Cannot connect to payment server');
-                setProcessingPayment(null);
-                return;
-            }
-
-            console.log('✅ Payment intent created:', paymentData.paymentIntentId);
-
-            if (!paymentData.clientSecret) {
-                Alert.alert('Error', 'Invalid payment response from server');
-                setProcessingPayment(null);
-                return;
-            }
+            const clientSecret = paymentData?.clientSecret;
+            if (!clientSecret) throw new Error("Invalid payment response");
 
             const { error: initError } = await initPaymentSheet({
                 merchantDisplayName: 'SkillSwap',
                 paymentIntentClientSecret: clientSecret,
                 appearance: { colors: { primary: COLORS.primaryBrand } }
             });
+
             if (initError) throw new Error(initError.message);
 
-            if (initError) {
-                Alert.alert('Payment Setup Error', initError.message);
-                setProcessingPayment(null);
-                return;
-            }
-
             const { error: presentError } = await presentPaymentSheet();
-            if (presentError) throw new Error(presentError.message);
-
             if (presentError) {
-                if (presentError.code === 'Canceled') {
-                    console.log('ℹ️ User cancelled payment');
-                } else {
-                    Alert.alert('Payment Failed', presentError.message);
-                }
-                setProcessingPayment(null);
+                if (presentError.code === 'Canceled') console.log('User cancelled payment');
+                else Alert.alert('Payment Failed', presentError.message);
                 return;
             }
 
-            console.log('✅ Payment successful');
+            // Payment Successful
+            await updateDoc(doc(db, 'conversations', conversationId, 'messages', message.id), {
+                status: 'paid',
+                paymentIntentId: paymentData.paymentIntentId,
+            });
 
-            try {
-                const messageRef = doc(db, 'conversations', conversationId, 'messages', message.id);
-                await updateDoc(messageRef, {
-                    status: 'paid',
-                    paymentIntentId: paymentData.paymentIntentId,
-                });
-            } catch (updateError) {
-                console.error('❌ Error updating message status:', updateError);
-            }
+            // Log History
+            await addDoc(collection(db, 'payments'), {
+                userId: user!.uid,
+                userEmail: user!.email,
+                userName: user!.displayName || user!.email,
+                skillName: message.description,
+                instructor: message.senderName,
+                amount: message.amount,
+                currency: 'usd',
+                paymentIntentId: paymentData.paymentIntentId,
+                status: 'completed',
+                date: new Date().toISOString(),
+                createdAt: new Date(),
+            });
 
-            try {
-                await addDoc(collection(db, 'payments'), {
-                    userId: user.uid,
-                    userEmail: user.email,
-                    userName: user.displayName || user.email,
-                    skillName: message.description,
-                    instructor: message.senderName,
-                    amount: message.amount,
-                    currency: 'usd',
-                    paymentIntentId: paymentData.paymentIntentId,
-                    status: 'completed',
-                    date: new Date().toISOString(),
-                    createdAt: new Date(),
-                });
-            } catch (historyError) {
-                console.error('⚠️ Could not save to payment history:', historyError);
-            }
-
-            Alert.alert('Success! 🎉', 'Payment completed successfully');
+            Alert.alert('Success!', 'Payment completed successfully');
         } catch (error: any) {
-            console.error('❌ Unexpected payment error:', error);
-            Alert.alert('Payment Error', error.message || 'An unexpected error occurred.');
+            console.error('Payment Error:', error);
+            Alert.alert('Payment Error', error.message);
         } finally {
             setProcessingPayment(null);
         }
     };
 
-    // Decline payment request
-    const handleDeclinePayment = async (messageId: string) => {
-        try {
-            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
-            await updateDoc(messageRef, {
-                status: 'declined',
-            });
-            Alert.alert('Declined', 'Payment request declined');
-        } catch (error) {
-            console.error('Error declining payment:', error);
-            Alert.alert('Error', 'Failed to decline payment request');
-        }
-    };
-
-    // Cancel payment request (sender only)
-    const handleCancelPayment = async (messageId: string) => {
-        try {
-            const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
-            await updateDoc(messageRef, {
-                status: 'cancelled',
-            });
-            Alert.alert('Cancelled', 'Payment request cancelled');
-        } catch (error) {
-            console.error('Error cancelling payment:', error);
-            Alert.alert('Error', 'Failed to cancel payment request');
-        }
-    };
-
-    // Handle opening meetup modal
     const handleOpenMeetupModal = () => {
         if (!conversationReady) {
             Alert.alert('Error', 'Chat not ready. Please try again.');
@@ -412,19 +355,8 @@ export default function ChatRoomScreen() {
         setShowMeetupModal(true);
     };
 
-    // Handle closing meetup modal
     const handleCloseMeetupModal = () => {
         setShowMeetupModal(false);
-    };
-
-    // Format timestamp
-    const formatTime = (timestamp: any) => {
-        try {
-            const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
-            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        } catch {
-            return '';
-        }
     };
 
     const renderMessage = ({ item }: { item: Message }) => {
@@ -461,7 +393,6 @@ export default function ChatRoomScreen() {
             );
         }
 
-        // Text Message
         return (
             <View style={[styles.row, isSelf ? styles.rowRight : styles.rowLeft]}>
                 <View style={[styles.bubble, isSelf ? styles.bubbleSelf : styles.bubbleOther]}>
@@ -476,37 +407,41 @@ export default function ChatRoomScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <KeyboardAvoidingView 
+            <KeyboardAvoidingView 
                 style={{ flex: 1 }} 
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             >
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-                    <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>{otherUserName || 'Chat'}</Text>
-                
-                {/* Meetup Button */}
-                <TouchableOpacity style={styles.iconBtn}>
-                    <Ionicons name="calendar-outline" size={24} color={COLORS.textPrimary} />
-                </TouchableOpacity>
-            </View>
+                {/* Header */}
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.replace('/(app)/chat-list')} style={styles.iconBtn}>
+                        <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+                    </TouchableOpacity>
+                    {/* Uses dynamic headerTitle instead of static param */}
+                    <Text style={styles.headerTitle}>{headerTitle}</Text>
+                    
+                    <TouchableOpacity 
+                        style={styles.iconBtn}
+                        onPress={handleOpenMeetupModal}
+                        disabled={!conversationReady}
+                    >
+                        <Ionicons name="calendar-outline" size={24} color={COLORS.textPrimary} />
+                    </TouchableOpacity>
+                </View>
 
-            {loading ? (
-                <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primaryBrand} /></View>
-            ) : (
-                <FlatList
-                    ref={flatListRef}
-                    data={messages}
-                    renderItem={renderMessage}
-                    keyExtractor={item => item.id}
-                    contentContainerStyle={styles.list}
-                />
-            )}
+                {loading ? (
+                    <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primaryBrand} /></View>
+                ) : (
+                    <FlatList
+                        ref={flatListRef}
+                        data={messages}
+                        renderItem={renderMessage}
+                        keyExtractor={item => item.id}
+                        contentContainerStyle={styles.list}
+                    />
+                )}
 
-                {/* Input area with payment and meetup buttons */}
+                {/* Input area */}
                 <View style={styles.inputContainer}>
                     <TextInput
                         style={styles.textInput}
@@ -516,16 +451,14 @@ export default function ChatRoomScreen() {
                         multiline
                     />
 
-                    {/* Payment button */}
                     <TouchableOpacity
                         style={styles.paymentIconButton}
                         onPress={() => setShowPaymentModal(true)}
                         disabled={!conversationReady}
                     >
-                        <Text style={styles.paymentIconText}>💰</Text>
+                        <Ionicons name="cash-outline" size={24} color="#FFFFFF" />
                     </TouchableOpacity>
 
-                    {/* Send button */}
                     <TouchableOpacity
                         style={[
                             styles.sendButton,
@@ -535,19 +468,10 @@ export default function ChatRoomScreen() {
                         disabled={!messageText.trim() || sending || !conversationReady}
                     >
                         {sending ? (
-                            <ActivityIndicator color="#fff" size="small" />
+                            <ActivityIndicator color={COLORS.primaryBrandText} size="small" />
                         ) : (
-                            <Text style={styles.sendButtonText}>Send</Text>
+                            <Ionicons name="send" size={20} color={COLORS.primaryBrandText} />
                         )}
-                    </TouchableOpacity>
-
-                    {/* Meetup button */}
-                    <TouchableOpacity
-                        style={[styles.sendButton, styles.meetupButton, !conversationReady && styles.sendButtonDisabled]}
-                        onPress={handleOpenMeetupModal}
-                        disabled={!conversationReady}
-                    >
-                        <Text style={styles.sendButtonText}>Meetup</Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
@@ -560,6 +484,7 @@ export default function ChatRoomScreen() {
                         <TextInput 
                             style={styles.modalInput} 
                             placeholder="Amount (0.00)" 
+                            placeholderTextColor={COLORS.textSecondary}
                             keyboardType="decimal-pad"
                             value={paymentAmount}
                             onChangeText={setPaymentAmount}
@@ -567,6 +492,7 @@ export default function ChatRoomScreen() {
                         <TextInput 
                             style={[styles.modalInput, {height: 80}]} 
                             placeholder="Description" 
+                            placeholderTextColor={COLORS.textSecondary}
                             multiline
                             value={paymentDescription}
                             onChangeText={setPaymentDescription}
@@ -583,13 +509,12 @@ export default function ChatRoomScreen() {
                 </View>
             </Modal>
 
-            {/* Meetup scheduling modal */}
             <ScheduleMeetingModal
                 visible={showMeetupModal}
                 onClose={handleCloseMeetupModal}
                 currentUserId={user?.uid || ''}
                 otherUserId={otherUserId}
-                otherUserName={otherUserName || 'User'}
+                otherUserName={headerTitle}
             />
         </SafeAreaView>
     );
@@ -598,22 +523,21 @@ export default function ChatRoomScreen() {
 const styles = StyleSheet.create({
     container: { 
         flex: 1, 
-        backgroundColor: 
-        COLORS.background 
+        backgroundColor: COLORS.background 
     },
     center: { 
         flex: 1, 
         justifyContent: 'center', 
         alignItems: 'center' 
     },
-    // Header
     header: {
         flexDirection: 'row', 
         alignItems: 'center', 
         justifyContent: 'space-between',
         padding: 16, 
         borderBottomWidth: 1, 
-        borderColor: COLORS.border
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.background,
     },
     iconBtn: { 
         padding: 4 
@@ -623,7 +547,6 @@ const styles = StyleSheet.create({
         fontWeight: 'bold', 
         color: COLORS.textPrimary 
     },
-    // List
     list: { 
         padding: 16, 
         paddingBottom: 20 
@@ -638,7 +561,6 @@ const styles = StyleSheet.create({
     rowRight: { 
         alignItems: 'flex-end' 
     },
-    // Bubbles
     bubble: { 
         padding: 12, 
         borderRadius: 20, 
@@ -661,7 +583,6 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-end', 
         marginTop: 4 
     },
-    // Cards (Payment/Meetup)
     card: {
         backgroundColor: COLORS.cardBackground, 
         width: 260, 
@@ -725,290 +646,72 @@ const styles = StyleSheet.create({
         fontWeight: 'bold', 
         color: COLORS.primaryBrandText 
     },
-    acceptedBadge: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        backgroundColor: '#ECFDF5', 
-        padding: 8, 
-        borderRadius: 8, 
-        marginTop: 8 
-    },
-    acceptedText: { 
-        color: COLORS.accentGreen, 
-        fontWeight: 'bold', 
-        marginLeft: 4 
-    },
-    pendingText: { 
-        fontStyle: 'italic', 
-        color: COLORS.textSecondary, 
-        textAlign: 'center', 
-        marginTop: 8 
-    },
-    // Input
-    inputBar: { 
-        flexDirection: 'row', 
-        padding: 12, 
-        borderTopWidth: 1, 
-        borderColor: COLORS.border, 
-        alignItems: 'flex-end' 
-    },
-    attachBtn: { 
-        padding: 10 
-    },
-    textInput: { 
-        flex: 1, 
-        backgroundColor: COLORS.inputBg, 
-        borderRadius: 20, 
-        padding: 10, 
-        marginHorizontal: 8, 
-        maxHeight: 100 
-    },
-    sendBtn: { 
-        backgroundColor: COLORS.primaryBrand, 
-        width: 40, 
-        height: 40, 
-        borderRadius: 20, 
-        justifyContent: 'center', 
-        alignItems: 'center' 
-    },
-    // Modal
-    modalOverlay: { 
-        flex: 1, 
-        backgroundColor: 'rgba(0,0,0,0.5)', 
-        justifyContent: 'center', 
-        padding: 20 
-    },
-    modalContent: { 
-        backgroundColor: '#fff', 
-        borderRadius: 20, 
-        padding: 20 
-    },
-    modalTitle: { 
-        fontSize: 20, 
-        fontWeight: 'bold', 
-        marginBottom: 20, 
-        textAlign: 'center' 
-    },
-    modalInput: { 
-        borderWidth: 1, 
-        borderColor: COLORS.border, 
-        borderRadius: 10,
-        padding: 12, 
-        marginBottom: 12 
-    },
-    modalActions: { 
-        flexDirection: 'row', 
-    },
-    myMessageBubble: {
-        backgroundColor: '#007AFF',
-        borderBottomRightRadius: 4,
-    },
-    theirMessageBubble: {
-        backgroundColor: '#fff',
-        borderBottomLeftRadius: 4,
-    },
-    senderName: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#666',
-        marginBottom: 4,
-    },
-    messageText: {
-        fontSize: 16,
-        lineHeight: 20,
-    },
-    myMessageText: {
-        color: '#fff',
-    },
-    theirMessageText: {
-        color: '#333',
-    },
-    messageTime: {
-        fontSize: 11,
-        marginTop: 4,
-    },
-    myMessageTime: {
-        color: 'rgba(255, 255, 255, 0.7)',
-        textAlign: 'right',
-    },
-    theirMessageTime: {
-        color: '#999',
-    },
-    // Payment message styles
-    paymentMessageContainer: {
-        marginBottom: 16,
-        alignItems: 'center',
-    },
-    paymentCard: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        padding: 16,
-        width: '90%',
-        borderWidth: 2,
-        borderColor: '#007AFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    paymentHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    paymentTitle: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#333',
-    },
-    paymentStatusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-        backgroundColor: '#FFF3E0',
-    },
-    paymentStatusPaid: {
-        backgroundColor: '#E8F5E9',
-    },
-    paymentStatusDeclined: {
-        backgroundColor: '#FFEBEE',
-    },
-    paymentStatusCancelled: {
-        backgroundColor: '#F5F5F5',
-    },
-    paymentStatusText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: '#FF9800',
-    },
-    paymentAmount: {
-        fontSize: 32,
-        fontWeight: 'bold',
-        color: '#007AFF',
-        marginBottom: 8,
-    },
-    paymentDescription: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 8,
-    },
-    paymentFrom: {
-        fontSize: 12,
-        color: '#999',
-        marginBottom: 12,
-    },
-    paymentActions: {
-        flexDirection: 'row',
-        gap: 8,
-        marginBottom: 8,
-    },
-    paymentButton: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    payButton: {
-        backgroundColor: '#4CAF50',
-    },
-    payButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    declineButton: {
-        backgroundColor: '#f0f0f0',
-    },
-    declineButtonText: {
-        color: '#666',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    cancelButton: {
-        backgroundColor: '#f0f0f0',
-        marginBottom: 8,
-    },
-    cancelButtonText: {
-        color: '#666',
-        fontWeight: '600',
-        fontSize: 14,
-    },
-    paymentTime: {
-        fontSize: 11,
-        color: '#999',
-        textAlign: 'center',
-    },
     inputContainer: {
         flexDirection: 'row',
         padding: 12,
         backgroundColor: '#fff',
         borderTopWidth: 1,
         borderTopColor: '#e0e0e0',
-        alignItems: 'flex-end',
+        alignItems: 'center', 
     },
-    input: {
-        flex: 1,
-        backgroundColor: '#f5f5f5',
-        borderRadius: 20,
+    textInput: { 
+        flex: 1, 
+        backgroundColor: COLORS.inputBg, 
+        borderRadius: 20, 
         paddingHorizontal: 16,
-        paddingVertical: 8,
+        paddingVertical: 10,
         marginRight: 8,
-        fontSize: 16,
         maxHeight: 100,
-        color: '#333',
+        color: COLORS.textPrimary,
     },
     paymentIconButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#4CAF50',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.accentGreen,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 8,
     },
-    paymentIconText: {
-        fontSize: 20,
-    },
     sendButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 20,
-        paddingVertical: 10,
+        backgroundColor: COLORS.primaryBrand,
+        width: 40,
+        height: 40,
         borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        minWidth: 70,
-    },
-    meetupButton: {
-        backgroundColor: '#34C759',
-        marginLeft: 8,
     },
     sendButtonDisabled: {
-        backgroundColor: '#ccc',
+        backgroundColor: '#E5E7EB',
     },
-    sendButtonText: {
-        color: '#fff',
-        fontWeight: '600',
-        fontSize: 16,
-    },
-    // Modal styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'flex-end',
+        justifyContent: 'center',
+        padding: 20,
     },
     modalContent: {
         backgroundColor: '#fff',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        paddingBottom: 40,
+        borderRadius: 20,
+        padding: 20,
     },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: 10 
+    modalTitle: { 
+        fontSize: 20, 
+        fontWeight: 'bold', 
+        marginBottom: 20, 
+        textAlign: 'center',
+        color: COLORS.textPrimary,
+    },
+    modalInput: { 
+        borderWidth: 1, 
+        borderColor: COLORS.border, 
+        borderRadius: 10,
+        padding: 12, 
+        marginBottom: 12,
+        color: COLORS.textPrimary,
+    },
+    modalActions: { 
+        flexDirection: 'row', 
     },
     modalBtnCancel: { 
         flex: 1, 
