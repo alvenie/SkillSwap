@@ -1,28 +1,24 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native"; //For UI and styling
-import MapView, { Marker, Circle, UrlTile } from "react-native-maps"; //Map component (used for OSM maps)
-import Slider from "@react-native-community/slider"; //For adjustable slider to select desired radius
-import * as Location from "expo-location"; //Provides GPS location access
-import { db, auth } from '../../firebaseConfig';
-import { doc, getDoc, setDoc, collection, getDocs } from "firebase/firestore";
+import React, { useEffect, useState, useRef } from "react";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import MapView, { Marker, UrlTile, LatLng } from "react-native-maps";
+import * as Location from "expo-location";
+import { db, auth } from "../../firebaseConfig";
+import { query, where, doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 
-export default function Index() {
-    // region holds current map region, i.e., latitude, longitude, and zoom level.
-    const [region, setRegion] = useState<{latitude: number, longitude: number, latitudeDelta: number, longitudeDelta: number} | null>(null);
+export default function MapsScreen() {
+    const mapRef = useRef<MapView>(null);
 
-    // search radius around the user in meters.
-    const [radius, setRadius] = useState(2000);
+    const [region, setRegion] = useState<{
+        latitude: number;
+        longitude: number;
+        latitudeDelta: number;
+        longitudeDelta: number;
+    } | null>(null);
 
-    // errorMsg stores permission or location errors.
-    const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-    // showPermissionPrompt indicates if the user needs to grant location
     const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-
-    // users holds all other users fetched from Firebase
+    const [friendIds, setFriendIds] = useState<string[]>([]);
     const [users, setUsers] = useState<any[]>([]);
 
-    // Default region to satisfy MapView render requirements
     const defaultRegion = {
         latitude: 0,
         longitude: 0,
@@ -30,205 +26,175 @@ export default function Index() {
         longitudeDelta: 0.04,
     };
 
-    // Fetch current user's location from Firebase
+    // ---------------------------
+    // 1) FETCH CURRENT USER LOCATION
+    // ---------------------------
     useEffect(() => {
         (async () => {
             try {
-                if (!auth.currentUser) {
-                    setErrorMsg("User not logged in");
-                    return;
-                }
+                if (!auth.currentUser) return;
 
-                // Fetch the user's document from Firestore
-                const userDocRef = doc(db, "users", auth.currentUser.uid);
-                const userSnapshot = await getDoc(userDocRef);
-
-                if (!userSnapshot.exists()) {
-                    setErrorMsg("User data not found in database");
-                    return;
-                }
-
-                const userData = userSnapshot.data();
-                const userLocation = userData.location;
-
-                if (!userLocation || !userLocation.latitude || !userLocation.longitude) {
-                    // Show permission prompt if no location found
+                const userRef = doc(db, "users", auth.currentUser.uid);
+                const userSnap = await getDoc(userRef);
+                if (!userSnap.exists()) {
                     setShowPermissionPrompt(true);
                     return;
                 }
 
-                // Set map region using Firebase coordinates
+                const data = userSnap.data();
+                if (!data.location) {
+                    setShowPermissionPrompt(true);
+                    return;
+                }
+
                 setRegion({
-                    latitude: userLocation.latitude,
-                    longitude: userLocation.longitude,
+                    latitude: data.location.latitude,
+                    longitude: data.location.longitude,
                     latitudeDelta: 0.04,
                     longitudeDelta: 0.04,
                 });
-            } catch (error) {
-                console.error("Error fetching user location:", error);
-                setErrorMsg("Failed to load location from database");
+            } catch (err) {
+                console.error("Error loading location:", err);
             }
         })();
     }, []);
 
-    // Fetch all users from Firebase once region is available
+    // ---------------------------
+    // 2) FETCH FRIEND LIST
+    // ---------------------------
+    useEffect(() => {
+        if (!auth.currentUser) return;
+
+        const fetchFriends = async () => {
+            try {
+                const q = query(
+                    collection(db, "friends"),
+                    where("userId", "==", auth.currentUser!.uid)
+                );
+
+                const snapshot = await getDocs(q);
+                const fIds: string[] = [];
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.friendId) fIds.push(data.friendId);
+                });
+
+                setFriendIds(fIds);
+            } catch (error) {
+                console.log("Error fetching friends:", error);
+            }
+        };
+
+        fetchFriends();
+    }, []);
+
+    // ---------------------------
+    // 3) FETCH FRIEND USERS
+    // ---------------------------
     useEffect(() => {
         if (!region) return;
 
         const fetchUsers = async () => {
             try {
-                const usersSnapshot = await getDocs(collection(db, "users"));
-                const allUsers: any[] = [];
+                const snapshot = await getDocs(collection(db, "users"));
+                const friendUsers: any[] = [];
 
-                usersSnapshot.forEach((docSnap) => {
+                snapshot.forEach((docSnap) => {
                     const data = docSnap.data();
-                    // Skip current user
-                    if (data.uid === auth.currentUser?.uid) return;
-                    if (!data.location || !data.location.latitude || !data.location.longitude) return;
-                    allUsers.push({
-                        id: data.uid,
+                    const uid = docSnap.id;
+                    if (uid === auth.currentUser?.uid) return;
+                    if (!friendIds.includes(uid)) return;
+                    if (!data.location) return;
+
+                    friendUsers.push({
+                        id: uid,
                         name: data.displayName || data.username || "Unnamed",
                         latitude: data.location.latitude,
                         longitude: data.location.longitude,
                     });
                 });
 
-                setUsers(allUsers);
-            } catch (e) {
-                console.log("Error fetching users:", e);
+                setUsers(friendUsers);
+
+                // ---------------------------
+                // FIT MAP TO FRIENDS
+                // ---------------------------
+                if (friendUsers.length && mapRef.current) {
+                    const coordinates: LatLng[] = friendUsers.map(u => ({
+                        latitude: u.latitude,
+                        longitude: u.longitude,
+                    }));
+
+                    // Include current user
+                    if (region) coordinates.push({ latitude: region.latitude, longitude: region.longitude });
+
+                    mapRef.current.fitToCoordinates(coordinates, {
+                        edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+                        animated: true,
+                    });
+                }
+            } catch (err) {
+                console.error("Error fetching users:", err);
             }
         };
 
         fetchUsers();
-    }, [region]);
-
-    // Haversine distance check to find nearby users within radius
-    const nearbyUsers = region
-        ? users.filter((u) => {
-            const R = 6371e3; // earth radius in meters
-            const φ1 = (region.latitude * Math.PI) / 180;
-            const φ2 = (u.latitude * Math.PI) / 180;
-            const Δφ = ((u.latitude - region.latitude) * Math.PI) / 180;
-            const Δλ = ((u.longitude - region.longitude) * Math.PI) / 180;
-
-            const a =
-                Math.sin(Δφ / 2) ** 2 +
-                Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            const d = R * c;
-
-            return d <= radius;
-        })
-        : [];
+    }, [region, friendIds]);
 
     return (
         <View style={styles.container}>
-            {/* Always render MapView with a region (default until real location is available) */}
             <MapView
+                ref={mapRef}
                 style={styles.map}
                 region={region ?? defaultRegion}
                 showsUserLocation={true}
                 loadingEnabled={true}
                 pitchEnabled={false}
                 rotateEnabled={false}
-                zoomControlEnabled={true}
             >
-                {/* OSM Tile Layer */}
                 <UrlTile
                     urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     maximumZ={19}
                     tileSize={256}
                 />
 
-                {/* Draw a circle and markers only if region exists */}
-                {region && (
-                    <>
-                        <Circle
-                            center={region}
-                            radius={radius}
-                            strokeColor="rgba(0,150,255,0.5)"
-                            fillColor="rgba(0,150,255,0.1)"
-                        />
-                        {nearbyUsers.map((u) => (
-                            <Marker
-                                key={u.id}
-                                coordinate={{ latitude: u.latitude, longitude: u.longitude }}
-                                title={u.name}
-                            />
-                        ))}
-                    </>
-                )}
+                {users.map(u => (
+                    <Marker
+                        key={u.id}
+                        coordinate={{ latitude: u.latitude, longitude: u.longitude }}
+                        title={u.name}
+                    />
+                ))}
             </MapView>
 
-            {/* Slider control */}
-            {region && (
-                <View style={styles.sliderContainer}>
-                    <Text style={styles.sliderText}>
-                        Radius: {(radius / 1000).toFixed(1)} km
-                    </Text>
-                    <Slider
-                        style={{ width: "90%", height: 40 }}
-                        minimumValue={500}
-                        maximumValue={10000}
-                        step={500}
-                        value={radius}
-                        onValueChange={setRadius}
-                        minimumTrackTintColor="#0096FF"
-                        maximumTrackTintColor="#000000"
-                    />
-                </View>
-            )}
-
-            {/* Permission prompt overlay */}
             {showPermissionPrompt && (
                 <View style={styles.permissionOverlay}>
                     <Text style={styles.title}>Enable Location Access</Text>
                     <Text style={styles.subtitle}>
-                        Skill Swap needs your location to show nearby users.
+                        SkillSwap needs your location to show friends.
                     </Text>
 
                     <TouchableOpacity
                         style={styles.button}
                         onPress={async () => {
-                            try {
-                                const { status } = await Location.requestForegroundPermissionsAsync();
-                                if (status !== "granted") return;
+                            const { status } = await Location.requestForegroundPermissionsAsync();
+                            if (status !== "granted") return;
 
-                                const location = await Location.getCurrentPositionAsync({});
-                                const coordsToSave = {
-                                    latitude: location.coords.latitude,
-                                    longitude: location.coords.longitude,
-                                };
+                            const location = await Location.getCurrentPositionAsync({});
+                            const coords = {
+                                latitude: location.coords.latitude,
+                                longitude: location.coords.longitude,
+                            };
 
-                                const uid = auth.currentUser?.uid;
-                                if (uid) {
-                                    await setDoc(
-                                        doc(db, "users", uid),
-                                        { location: coordsToSave },
-                                        { merge: true }
-                                    );
-
-                                    // Update region and hide permission UI
-                                    setRegion({
-                                        latitude: coordsToSave.latitude,
-                                        longitude: coordsToSave.longitude,
-                                        latitudeDelta: 0.04,
-                                        longitudeDelta: 0.04,
-                                    });
-                                    setShowPermissionPrompt(false);
-                                }
-                            } catch (e) {
-                                console.log("Location error:", e);
-                            }
+                            await setDoc(doc(db, "users", auth.currentUser!.uid), { location: coords }, { merge: true });
+                            setRegion({ ...coords, latitudeDelta: 0.04, longitudeDelta: 0.04 });
+                            setShowPermissionPrompt(false);
                         }}
                     >
                         <Text style={styles.buttonText}>Grant Location Access</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={styles.denyButton}
-                        onPress={() => setShowPermissionPrompt(false)}
-                    >
+                    <TouchableOpacity style={styles.denyButton} onPress={() => setShowPermissionPrompt(false)}>
                         <Text style={styles.denyText}>No Thanks</Text>
                     </TouchableOpacity>
                 </View>
@@ -237,26 +203,9 @@ export default function Index() {
     );
 }
 
-// Styles
 const styles = StyleSheet.create({
     container: { flex: 1 },
     map: { flex: 1 },
-    sliderContainer: {
-        position: "absolute",
-        bottom: 40,
-        left: 0,
-        right: 0,
-        alignItems: "center",
-        backgroundColor: "rgba(255,255,255,0.8)",
-        paddingVertical: 8,
-        borderRadius: 10,
-        marginHorizontal: 16,
-    },
-    sliderText: {
-        fontSize: 16,
-        fontWeight: "600",
-        marginBottom: 4,
-    },
     permissionOverlay: {
         position: "absolute",
         top: 0,
@@ -268,8 +217,8 @@ const styles = StyleSheet.create({
         alignItems: "center",
         padding: 20,
     },
-    title: { fontSize: 28, fontWeight: "bold", textAlign: "center", marginBottom: 10 },
-    subtitle: { fontSize: 16, color: "#555", textAlign: "center", marginBottom: 40 },
+    title: { fontSize: 28, fontWeight: "bold", marginBottom: 10 },
+    subtitle: { fontSize: 16, color: "#555", marginBottom: 40, textAlign: "center" },
     button: { backgroundColor: "#007AFF", padding: 14, borderRadius: 8, width: "80%", marginBottom: 15 },
     buttonText: { color: "white", fontSize: 18, textAlign: "center" },
     denyButton: { padding: 12 },
