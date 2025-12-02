@@ -113,7 +113,7 @@ export default function EditProfileScreen() {
                     email: user.email,
                     displayName: displayName.trim(),
                     bio: bio.trim(),
-                    location: location.trim(),
+                    //location: location.trim(),
                     skillsTeaching,
                     skillsLearning,
                     updatedAt: new Date().toISOString(),

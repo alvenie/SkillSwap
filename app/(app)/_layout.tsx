@@ -42,6 +42,7 @@ export default function TabLayout() {
                 }}
             />
 
+
             {/* calendar screen - schedule and manage meetings */}
             <Tabs.Screen
                 name="calendar"

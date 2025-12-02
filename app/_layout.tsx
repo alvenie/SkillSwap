@@ -6,6 +6,8 @@ import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
 
 // Stripe configuration for payment processing
 const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SMUvw0PYyjZRDce0rzXOYfn5tZrhBIowfgMr96Or2xGJeEwjOJGWhZQMrNYfcJusbSrpGqECHTVngSC09I6lr4Q00nqd3k0Hu';
@@ -24,20 +26,38 @@ function RootLayoutNav() {
      * This prevents accessing protected screens without authentication
      */
     useEffect(() => {
-        // Wait for auth state to be determined
         if (isLoading) return;
 
-        // Check if user is currently in the app group (protected routes)
         const inAppGroup = segments[0] === '(app)';
 
         if (user && !inAppGroup) {
-            // User is logged in but on public screen → redirect to app
-            router.replace('/(app)');
+            // Fetch user data to check if location exists
+            const checkLocation = async () => {
+                try {
+                    const userDoc = await getDoc(doc(db, "users", user.uid));
+                    const userData = userDoc.data();
+
+                    if (!userData?.location || !userData.location.latitude || !userData.location.longitude) {
+                        // New user without location → go to permission page
+                        router.replace('/(public)/permission');
+                    } else {
+                        // Existing user → go to home
+                        router.replace('/(app)');
+                    }
+                } catch (e) {
+                    console.log("Error checking user location:", e);
+                    // Fallback → go to home
+                    router.replace('/(app)');
+                }
+            };
+
+            checkLocation();
         } else if (!user && inAppGroup) {
-            // User is logged out but on protected screen → redirect to login
+            // Logged out user trying to access app screens
             router.replace('/(public)/login');
         }
     }, [user, isLoading, segments]);
+
 
     // Show loading screen while checking authentication status
     if (isLoading) {
