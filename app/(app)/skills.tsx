@@ -19,19 +19,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
+import StarRating from '../../components/StarRating';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
 
 const COLORS = {
-    primaryBrand: '#FCD34D', // Mustard yellow
-    primaryBrandText: '#1F2937', // Dark text for contrast
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
     textPrimary: '#1F2937',
     textSecondary: '#6B7280',
     border: '#E5E7EB',
     accentGreen: '#10B981',
+    accentBlue: '#3B82F6',
     lightGray: '#F9FAFB',
 };
 
@@ -44,8 +46,10 @@ interface UserWithSkills {
     skillsTeaching: string[];
     skillsLearning: string[];
     bio?: string;
-    location?: any; 
+    location?: any;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 type RoleFilterType = 'All' | 'Teaches' | 'Learns';
@@ -59,17 +63,17 @@ export default function SkillsScreen() {
     const [users, setUsers] = useState<UserWithSkills[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
     const [allSkills, setAllSkills] = useState<string[]>(['All']);
-    
+
     // UI State
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
-    
+
     // Filters State
     const [selectedSkill, setSelectedSkill] = useState<string>('All');
     const [roleFilter, setRoleFilter] = useState<RoleFilterType>('All');
-    const [showFilterModal, setShowFilterModal] = useState(false); // New Modal State
-    
+    const [showFilterModal, setShowFilterModal] = useState(false);
+
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -124,6 +128,8 @@ export default function SkillsScreen() {
                             bio: data.bio || '',
                             location: data.location || null,
                             status: data.status || 'offline',
+                            averageRating: data.averageRating || 0,
+                            reviewCount: data.reviewCount || 0,
                         });
                         data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
                         data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
@@ -182,7 +188,7 @@ export default function SkillsScreen() {
 
                 if (roleFilter === 'Teaches') return teaches;
                 if (roleFilter === 'Learns') return learns;
-                return teaches || learns; 
+                return teaches || learns;
             });
         } else {
             if (roleFilter === 'Teaches') {
@@ -205,7 +211,7 @@ export default function SkillsScreen() {
         }
 
         setFilteredUsers(result);
-        setCurrentPage(1); 
+        setCurrentPage(1);
     };
 
     // Pagination Logic
@@ -309,11 +315,19 @@ export default function SkillsScreen() {
                         <Text style={styles.userName} numberOfLines={1}>
                             {targetUser.displayName}
                         </Text>
-                        
+
                         {locationText && (
                             <Text style={styles.location} numberOfLines={1}>📍 {locationText}</Text>
                         )}
-                        
+
+                        {/* Star Rating */}
+                        <StarRating
+                            rating={targetUser.averageRating || 0}
+                            reviewCount={targetUser.reviewCount || 0}
+                            size="small"
+                            showCount={true}
+                        />
+
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={1}>
                                 {targetUser.bio}
@@ -372,7 +386,7 @@ export default function SkillsScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
-            {/* Updated Header with Filter Icon */}
+            {/* Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
                 <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
@@ -433,16 +447,16 @@ export default function SkillsScreen() {
                 {/* Pagination */}
                 {filteredUsers.length > 0 && (
                     <View style={styles.paginationContainer}>
-                        <TouchableOpacity 
-                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]} 
+                        <TouchableOpacity
+                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]}
                             onPress={prevPage}
                             disabled={currentPage === 1}
                         >
                             <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#ccc' : COLORS.textPrimary} />
                         </TouchableOpacity>
                         <Text style={styles.pageText}>Page {currentPage} of {totalPages}</Text>
-                        <TouchableOpacity 
-                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]} 
+                        <TouchableOpacity
+                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]}
                             onPress={nextPage}
                             disabled={currentPage === totalPages}
                         >
@@ -450,11 +464,11 @@ export default function SkillsScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
-                
+
                 <View style={{ height: 40 }} />
             </ScrollView>
 
-            {/* FILTER MODAL (New) */}
+            {/* FILTER MODAL */}
             <Modal visible={showFilterModal} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                     <View style={styles.filterModalContent}>
@@ -464,7 +478,7 @@ export default function SkillsScreen() {
                                 <Ionicons name="close" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         </View>
-                        
+
                         <Text style={styles.filterLabel}>Show users who:</Text>
                         <View style={styles.roleOptionsContainer}>
                             {(['All', 'Teaches', 'Learns'] as RoleFilterType[]).map((role) => (
@@ -480,9 +494,9 @@ export default function SkillsScreen() {
                                 </TouchableOpacity>
                             ))}
                         </View>
-                        
-                        <TouchableOpacity 
-                            style={styles.applyFilterButton} 
+
+                        <TouchableOpacity
+                            style={styles.applyFilterButton}
                             onPress={() => setShowFilterModal(false)}
                         >
                             <Text style={styles.applyFilterButtonText}>Done</Text>
@@ -491,7 +505,7 @@ export default function SkillsScreen() {
                 </View>
             </Modal>
 
-            {/* Request Modal (Existing) */}
+            {/* Request Modal */}
             <Modal visible={showRequestModal} animationType="fade" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -509,14 +523,14 @@ export default function SkillsScreen() {
                             multiline
                         />
                         <View style={styles.modalButtons}>
-                             <TouchableOpacity 
-                                style={styles.modalBtnCancel} 
+                            <TouchableOpacity
+                                style={styles.modalBtnCancel}
                                 onPress={() => setShowRequestModal(false)}
                             >
                                 <Text style={styles.modalBtnTextCancel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={styles.modalBtnSend} 
+                            <TouchableOpacity
+                                style={styles.modalBtnSend}
                                 onPress={sendFriendRequest}
                                 disabled={sending}
                             >
@@ -535,7 +549,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: COLORS.background,
     },
-    // Header
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -552,7 +565,6 @@ const styles = StyleSheet.create({
     filterIconBtn: {
         padding: 8,
     },
-    // Search
     searchSection: {
         paddingHorizontal: 20,
         marginBottom: 12,
@@ -572,7 +584,6 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: COLORS.textPrimary,
     },
-    // Chips
     chipsContainer: {
         marginBottom: 10,
     },
@@ -600,15 +611,13 @@ const styles = StyleSheet.create({
     chipTextActive: {
         color: COLORS.primaryBrandText,
     },
-    // List
     listContainer: {
         flex: 1,
-        backgroundColor: '#FAFAFA', 
+        backgroundColor: '#FAFAFA',
     },
     listContent: {
         padding: 20,
     },
-    // CARD STYLES
     card: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -624,7 +633,7 @@ const styles = StyleSheet.create({
     },
     cardHeader: {
         flexDirection: 'row',
-        alignItems: 'flex-start', // Align to top
+        alignItems: 'flex-start',
         marginBottom: 8,
     },
     avatarContainer: {
@@ -675,11 +684,12 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: COLORS.textSecondary,
         fontStyle: 'italic',
+        marginTop: 4,
     },
     cardAction: {
         marginLeft: 8,
         justifyContent: 'center',
-        height: 46, // Align vertically with avatar
+        height: 46,
     },
     addButton: {
         width: 32,
@@ -703,7 +713,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    // Skills Row
     skillsRow: {
         marginTop: 4,
         paddingTop: 8,
@@ -726,7 +735,6 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: COLORS.textPrimary,
     },
-    // Pagination
     paginationContainer: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -757,7 +765,6 @@ const styles = StyleSheet.create({
     emptyText: {
         color: COLORS.textSecondary,
     },
-    // Modal & Filter Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -819,7 +826,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.primaryBrandText,
     },
-    // Filter Modal Specifics
     filterLabel: {
         fontSize: 14,
         fontWeight: '600',
