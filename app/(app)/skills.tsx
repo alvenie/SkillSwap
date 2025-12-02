@@ -54,6 +54,25 @@ interface UserWithSkills {
 
 type RoleFilterType = 'All' | 'Teaches' | 'Learns';
 
+// Haversine function
+const haversineDistance = (coords1: { latitude: number, longitude: number }, coords2: { latitude: number, longitude: number }) => {
+    const R = 6371; // Earth radius in km
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+    const dLat = toRad(coords2.latitude - coords1.latitude);
+    const dLon = toRad(coords2.longitude - coords1.longitude);
+    const lat1 = toRad(coords1.latitude);
+    const lat2 = toRad(coords2.latitude);
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in km
+};
+
+
 export default function SkillsScreen() {
     const { user } = useAuth();
     const router = useRouter();
@@ -281,6 +300,30 @@ export default function SkillsScreen() {
         loadExistingFriends();
     };
 
+    const [currentUserLocation, setCurrentUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+    useEffect(() => {
+        const fetchUserLocation = async () => {
+            if (!user) return;
+            try {
+                const docSnap = await getDoc(doc(db, "users", user.uid));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.location) {
+                        setCurrentUserLocation({
+                            latitude: data.location.latitude,
+                            longitude: data.location.longitude,
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching current user location:", err);
+            }
+        };
+
+        fetchUserLocation();
+    }, [user]);
+
     // Render Items
     const renderUserCard = (targetUser: UserWithSkills) => {
         const isFriend = existingFriends.includes(targetUser.uid);
@@ -288,14 +331,20 @@ export default function SkillsScreen() {
         const isOnline = targetUser.status === 'online';
 
         // Safe Location Logic
-        let locationText = null;
-        if (targetUser.location) {
-            if (typeof targetUser.location === 'string') {
-                locationText = targetUser.location;
-            } else if (typeof targetUser.location === 'object') {
-                locationText = "Location Shared";
+        let locationText = "Location unavailable";
+        if (targetUser.location && currentUserLocation) {
+            try {
+                const distance = haversineDistance(
+                    currentUserLocation,
+                    { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
+                );
+                locationText = `${distance.toFixed(1)} km away`;
+            } catch (err) {
+                locationText = "Location unavailable";
             }
         }
+
+
 
         return (
             <View key={targetUser.uid} style={styles.card}>

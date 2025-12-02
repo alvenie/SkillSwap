@@ -522,7 +522,6 @@ const styles = StyleSheet.create({
     linkText: {
         fontSize: 14,
         fontWeight: '600',
-        color: COLORS.primaryBrandText, // Or accent color
         color: '#D97706', // Darker yellow/orange for links
     },
     // Skills Card

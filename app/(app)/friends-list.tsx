@@ -42,8 +42,25 @@ interface Friend {
     status?: 'online' | 'offline';
     skillsTeaching?: string[];
     skillsLearning?: string[];
-    location?: string;
+    location?: any;
 }
+
+const haversineDistance = (coords1: { latitude: number, longitude: number }, coords2: { latitude: number, longitude: number }) => {
+    const R = 6371; // Earth radius in km
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+    const dLat = toRad(coords2.latitude - coords1.latitude);
+    const dLon = toRad(coords2.longitude - coords1.longitude);
+    const lat1 = toRad(coords1.latitude);
+    const lat2 = toRad(coords2.latitude);
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in km
+};
 
 export default function FriendsListScreen() {
     const { user } = useAuth();
@@ -216,18 +233,48 @@ export default function FriendsListScreen() {
         loadFriends();
     };
 
+
+
+    const [currentUserLocation, setCurrentUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+
+    useEffect(() => {
+        const fetchUserLocation = async () => {
+            if (!user) return;
+            try {
+                const docSnap = await getDoc(doc(db, "users", user.uid));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.location) {
+                        setCurrentUserLocation({
+                            latitude: data.location.latitude,
+                            longitude: data.location.longitude,
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching current user location:", err);
+            }
+        };
+
+        fetchUserLocation();
+    }, [user]);
+
     const renderFriendCard = (friend: Friend) => {
         const isOnline = friend.status === 'online';
         // 2. FIX: Ensure name is safe to use
         const displayName = friend.friendName || 'User';
 
         // Fix safe location display
-        let locationText = null;
-        if (friend.location) {
-            if (typeof friend.location === 'string') {
-                locationText = friend.location;
-            } else if (typeof friend.location === 'object') {
-                locationText = "Location Shared";
+        let locationText = "Location unavailable";
+        if (friend.location && currentUserLocation) {
+            try {
+                const distance = haversineDistance(
+                    currentUserLocation,
+                    { latitude: friend.location.latitude, longitude: friend.location.longitude }
+                );
+                locationText = `${distance.toFixed(1)} km away`;
+            } catch (err) {
+                locationText = "Location unavailable";
             }
         }
 
