@@ -1,80 +1,110 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 
-// main tab navigation layout for the app
+// Theme Configuration
+const COLORS = {
+    primaryBrand: '#FCD34D', // Mustard Yellow
+    primaryBrandText: '#1F2937', // Dark Gray
+    background: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+};
+
+// Main tab navigation layout
 export default function TabLayout() {
     return (
         <Tabs
-            // global tab bar styling
-            screenOptions={{
-                tabBarActiveTintColor: '#007AFF', // iOS blue for active tabs
-                headerShown: false, // we handle headers in individual screens
-            }}>
+            screenOptions={({ route }) => ({
+                tabBarActiveTintColor: COLORS.primaryBrandText, // Use dark gray for active text/icon
+                tabBarInactiveTintColor: COLORS.textSecondary,
+                headerShown: false,
+                tabBarStyle: styles.tabBar,
+                tabBarLabelStyle: styles.tabLabel,
+                // Custom Icon Logic
+                tabBarIcon: ({ focused, color, size }) => {
+                    let iconName: keyof typeof Ionicons.glyphMap = 'help'; 
 
-            {/* visible tabs in the bottom navigation */}
+                    if (route.name === 'index') {
+                        iconName = focused ? 'home' : 'home-outline';
+                    } else if (route.name === 'skills') {
+                        iconName = focused ? 'flash' : 'flash-outline';
+                    } else if (route.name === 'maps') {
+                        iconName = focused ? 'map' : 'map-outline';
+                    } else if (route.name === 'chat-list') {
+                        iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                    } else if (route.name === 'calendar') {
+                        iconName = focused ? 'calendar' : 'calendar-outline';
+                    } else if (route.name === 'profile') {
+                        iconName = focused ? 'person' : 'person-outline';
+                    }
 
-            {/* home screen - main landing page */}
+                    // Use a View for the active indicator circle if focused
+                    return (
+                        <View style={[styles.iconContainer, focused && styles.activeIconContainer]}>
+                            <Ionicons name={iconName} size={24} color={focused ? COLORS.primaryBrandText : color} />
+                        </View>
+                    );
+                },
+            })}
+        >
+            {/* 1. Home */}
             <Tabs.Screen
                 name="index"
                 options={{
                     title: 'Home',
                     tabBarLabel: 'Home',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🏠</Text>,
                 }}
             />
 
-            {/* skills screen - view and manage user skills */}
+            {/* 2. Skills */}
             <Tabs.Screen
                 name="skills"
                 options={{
                     title: 'Skills',
                     tabBarLabel: 'Skills',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🎯</Text>,
                 }}
             />
 
+            {/* 3. Maps */}
             <Tabs.Screen
                 name="maps"
                 options={{
                     title: 'Maps',
                     tabBarLabel: 'Maps',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>🗺️</Text>,
                 }}
             />
 
-
-            {/* calendar screen - schedule and manage meetings */}
-            <Tabs.Screen
-                name="calendar"
-                options={{
-                    title: 'Calendar',
-                    tabBarLabel: 'Calendar',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>📅</Text>,
-                }}
-            />
-
-            {/* chat list - all conversations */}
+            {/* 4. Chat List */}
             <Tabs.Screen
                 name="chat-list"
                 options={{
-                    title: 'Messages',
-                    tabBarLabel: 'Messages',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>💬</Text>,
+                    title: 'Chat',
+                    tabBarLabel: 'Chat',
                 }}
             />
 
-            {/* user profile and settings */}
+            {/* 5. Calendar (NEW) */}
+            <Tabs.Screen
+                name="calendar"
+                options={{
+                    title: 'Schedule',
+                    tabBarLabel: 'Calendar',
+                }}
+            />
+
+            {/* 6. Profile */}
             <Tabs.Screen
                 name="profile"
                 options={{
                     title: 'Profile',
                     tabBarLabel: 'Profile',
-                    tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>👤</Text>,
                 }}
             />
 
-            {/* hidden routes - accessible via navigation but not shown in tab bar */}
-            {/* href: null removes them from the visible tabs */}
+            {/* --- Hidden Routes --- */}
             <Tabs.Screen name="video-chat" options={{ href: null }} />
             <Tabs.Screen name="payment" options={{ href: null }} />
             <Tabs.Screen name="history" options={{ href: null }} />
@@ -85,8 +115,40 @@ export default function TabLayout() {
             <Tabs.Screen name="chat-room" options={{ href: null }} />
             <Tabs.Screen name="browse-skills" options={{ href: null }} />
             <Tabs.Screen name="manage-skills" options={{ href: null }} />
-            <Tabs.Screen name="settings" options={{ href: null}} />
+            <Tabs.Screen name="settings" options={{ href: null }} />
             <Tabs.Screen name="user_profile" options={{ href: null }} />
         </Tabs>
     );
 }
+
+const styles = StyleSheet.create({
+    tabBar: {
+        backgroundColor: COLORS.background,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        height: 85, // Increased height
+        paddingBottom: 25, // Increased padding
+        paddingTop: 8,
+        // Shadow for depth
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 5,
+    },
+    tabLabel: {
+        fontSize: 10,
+        fontWeight: '600',
+        marginTop: 4, // Adjusted margin
+    },
+    iconContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 48, // Slightly wider
+        height: 36, // Slightly taller
+        borderRadius: 18,
+    },
+    activeIconContainer: {
+        backgroundColor: COLORS.primaryBrand, // Highlight active tab with yellow pill bg
+    },
+});
