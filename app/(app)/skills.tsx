@@ -25,8 +25,8 @@ import StarRating from '../../components/StarRating';
 const ITEMS_PER_PAGE = 10;
 
 const COLORS = {
-    primaryBrand: '#FCD34D',
-    primaryBrandText: '#1F2937',
+    primaryBrand: '#FCD34D', // Mustard yellow
+    primaryBrandText: '#1F2937', // Dark text for contrast
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
     textPrimary: '#1F2937',
@@ -618,6 +618,7 @@ const styles = StyleSheet.create({
     listContent: {
         padding: 20,
     },
+    // CARD STYLES
     card: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -633,7 +634,7 @@ const styles = StyleSheet.create({
     },
     cardHeader: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
+        alignItems: 'flex-start', // Align to top
         marginBottom: 8,
     },
     avatarContainer: {
@@ -689,7 +690,7 @@ const styles = StyleSheet.create({
     cardAction: {
         marginLeft: 8,
         justifyContent: 'center',
-        height: 46,
+        height: 46, // Align vertically with avatar
     },
     addButton: {
         width: 32,
@@ -765,6 +766,7 @@ const styles = StyleSheet.create({
     emptyText: {
         color: COLORS.textSecondary,
     },
+    // Modal & Filter Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -826,6 +828,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.primaryBrandText,
     },
+    // Filter Modal Specifics
     filterLabel: {
         fontSize: 14,
         fontWeight: '600',

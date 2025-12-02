@@ -40,7 +40,7 @@ interface UserProfile {
     bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    location?: string;
+    //location?: string;
     status: 'online' | 'offline' | 'in-call';
     friendCount: number;
 }
