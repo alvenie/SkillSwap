@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
+import StarRating from '../../components/StarRating';  // ADDED IMPORT
 
 // --- Theme Configuration ---
 const COLORS = {
@@ -32,6 +33,7 @@ const COLORS = {
 };
 
 // User profile structure
+// UPDATED INTERFACE - Added rating fields
 interface UserProfile {
     uid: string;
     email: string;
@@ -41,6 +43,8 @@ interface UserProfile {
     skillsLearning: string[];
     location?: string;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;    // ADDED
+    reviewCount?: number;      // ADDED
 }
 
 export default function FindFriendsScreen() {
@@ -88,6 +92,8 @@ export default function FindFriendsScreen() {
                         skillsLearning: data.skillsLearning || [],
                         location: data.location || '',
                         status: data.status || 'offline',
+                        averageRating: data.averageRating || 0,    // ADDED
+                        reviewCount: data.reviewCount || 0,        // ADDED
                     });
                 }
             });
@@ -210,6 +216,14 @@ export default function FindFriendsScreen() {
                         {targetUser.location && (
                             <Text style={styles.location}>📍 {targetUser.location}</Text>
                         )}
+
+                        {/* ADDED STAR RATING */}
+                        <StarRating
+                            rating={targetUser.averageRating || 0}
+                            reviewCount={targetUser.reviewCount || 0}
+                            size="small"
+                        />
+
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={2}>
                                 {targetUser.bio}
@@ -509,6 +523,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: COLORS.textSecondary,
         lineHeight: 18,
+        marginTop: 4,
     },
     // UPDATED SKILLS SECTION STYLES
     skillsRow: {

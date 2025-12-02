@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
+import StarRating from '../../components/StarRating';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
@@ -36,7 +37,7 @@ const COLORS = {
     lightGray: '#F9FAFB',
 };
 
-// User profile interface
+// User profile interface - UPDATED with rating fields
 interface UserWithSkills {
     id: string;
     uid: string;
@@ -47,6 +48,8 @@ interface UserWithSkills {
     bio?: string;
     location?: string;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 export default function SkillsScreen() {
@@ -58,13 +61,13 @@ export default function SkillsScreen() {
     const [users, setUsers] = useState<UserWithSkills[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
     const [allSkills, setAllSkills] = useState<string[]>(['All']);
-    
+
     // UI State
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
     const [selectedSkill, setSelectedSkill] = useState<string>('All');
-    
+
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -125,6 +128,8 @@ export default function SkillsScreen() {
                             bio: data.bio || '',
                             location: data.location || '',
                             status: data.status || 'offline',
+                            averageRating: data.averageRating || 0,
+                            reviewCount: data.reviewCount || 0,
                         });
                         data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
                         data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
@@ -270,7 +275,7 @@ export default function SkillsScreen() {
         loadExistingFriends();
     };
 
-    // --- Render Items ---
+    // --- Render User Card with Ratings ---
     const renderUserCard = (targetUser: UserWithSkills) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
@@ -299,6 +304,15 @@ export default function SkillsScreen() {
                                 <Text style={styles.location} numberOfLines={1}>📍 {targetUser.location}</Text>
                             )}
                         </View>
+
+                        {/* Star Rating Display */}
+                        <StarRating
+                            rating={targetUser.averageRating || 0}
+                            reviewCount={targetUser.reviewCount || 0}
+                            size="small"
+                            showCount={true}
+                        />
+
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={1}>
                                 {targetUser.bio}
@@ -415,20 +429,20 @@ export default function SkillsScreen() {
                 {/* Pagination Controls */}
                 {filteredUsers.length > 0 && (
                     <View style={styles.paginationContainer}>
-                        <TouchableOpacity 
-                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]} 
+                        <TouchableOpacity
+                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]}
                             onPress={prevPage}
                             disabled={currentPage === 1}
                         >
                             <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#ccc' : COLORS.textPrimary} />
                         </TouchableOpacity>
-                        
+
                         <Text style={styles.pageText}>
                             Page {currentPage} of {totalPages}
                         </Text>
 
-                        <TouchableOpacity 
-                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]} 
+                        <TouchableOpacity
+                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]}
                             onPress={nextPage}
                             disabled={currentPage === totalPages}
                         >
@@ -436,11 +450,11 @@ export default function SkillsScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
-                
+
                 <View style={{ height: 40 }} />
             </ScrollView>
 
-            {/* Modal - Kept relatively same but updated colors */}
+            {/* Modal */}
             <Modal visible={showRequestModal} animationType="fade" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -458,14 +472,14 @@ export default function SkillsScreen() {
                             multiline
                         />
                         <View style={styles.modalButtons}>
-                             <TouchableOpacity 
-                                style={styles.modalBtnCancel} 
+                            <TouchableOpacity
+                                style={styles.modalBtnCancel}
                                 onPress={() => setShowRequestModal(false)}
                             >
                                 <Text style={styles.modalBtnTextCancel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity 
-                                style={styles.modalBtnSend} 
+                            <TouchableOpacity
+                                style={styles.modalBtnSend}
                                 onPress={sendFriendRequest}
                                 disabled={sending}
                             >
@@ -554,7 +568,7 @@ const styles = StyleSheet.create({
     // List
     listContainer: {
         flex: 1,
-        backgroundColor: '#FAFAFA', // Slight contrast for list area
+        backgroundColor: '#FAFAFA',
     },
     listContent: {
         padding: 20,
@@ -563,11 +577,10 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
-        padding: 12, // Reduced padding
+        padding: 12,
         marginBottom: 12,
         borderWidth: 1,
         borderColor: COLORS.border,
-        // Softer shadow
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
@@ -584,7 +597,7 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
     avatar: {
-        width: 46, // Reduced size
+        width: 46,
         height: 46,
         borderRadius: 23,
         backgroundColor: COLORS.primaryBrand,
@@ -617,7 +630,7 @@ const styles = StyleSheet.create({
         marginBottom: 2,
     },
     userName: {
-        fontSize: 16, // Reduced font size
+        fontSize: 16,
         fontWeight: '700',
         color: COLORS.textPrimary,
         marginRight: 6,
@@ -629,6 +642,7 @@ const styles = StyleSheet.create({
     bio: {
         fontSize: 12,
         color: COLORS.textSecondary,
+        marginTop: 4,
     },
     cardAction: {
         marginLeft: 8,
