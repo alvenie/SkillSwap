@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// --- Theme Configuration (Matched to your other files) ---
+// Theme Configuration
 const COLORS = {
     primaryBrand: '#FCD34D',
     primaryBrandText: '#1F2937',
@@ -86,7 +86,7 @@ export default function FriendsListScreen() {
                     const friendProfileDoc = await getDoc(doc(db, 'users', friendData.friendId));
                     if (friendProfileDoc.exists()) {
                         const profileData = friendProfileDoc.data();
-                        // 1. FIX: Prioritize profile name, fallback to existing data, then 'User'
+                        // Prioritize profile name, fallback to existing data, then 'User'
                         finalFriendName = profileData.displayName || finalFriendName;
                         finalFriendEmail = profileData.email || finalFriendEmail;
                         status = profileData.status || 'offline';
@@ -156,17 +156,17 @@ export default function FriendsListScreen() {
                             if (!user) return;
                             const friendsRef = collection(db, 'friends');
 
-                            // Delete your record of them
+                            // Delete my record of them
                             const q1 = query(friendsRef, where('userId', '==', user.uid), where('friendId', '==', friendId));
                             const snap1 = await getDocs(q1);
                             snap1.forEach(async (d) => await deleteDoc(d.ref));
 
-                            // Delete their record of you
+                            // Delete their record of me
                             const q2 = query(friendsRef, where('userId', '==', friendId), where('friendId', '==', user.uid));
                             const snap2 = await getDocs(q2);
                             snap2.forEach(async (d) => await deleteDoc(d.ref));
 
-                            // Update Friend Counts
+                            // Update counts
                             const userDoc = await getDoc(doc(db, 'users', user.uid));
                             const friendDoc = await getDoc(doc(db, 'users', friendId));
                             
@@ -179,10 +179,8 @@ export default function FriendsListScreen() {
                                 await updateDoc(doc(db, 'users', friendId), { friendCount: Math.max(0, current - 1) });
                             }
 
-                            // Delete chat history between the two users
+                            // DELETE CHAT HISTORY
                             const conversationsRef = collection(db, 'conversations');
-                            
-                            // Find the conversation where participants include BOTH users
                             const chatQuery = query(
                                 conversationsRef, 
                                 where('participants', 'array-contains', user.uid)
@@ -192,7 +190,6 @@ export default function FriendsListScreen() {
                             
                             chatSnap.forEach(async (chatDoc) => {
                                 const data = chatDoc.data();
-                                // Check if the other participant is the friend we are removing
                                 if (data.participants && data.participants.includes(friendId)) {
                                     await deleteDoc(chatDoc.ref);
                                     console.log(`Deleted conversation: ${chatDoc.id}`);
@@ -200,7 +197,7 @@ export default function FriendsListScreen() {
                             });
 
                             Alert.alert('Success', 'Friend and chat history removed');
-                            loadFriends(); // Refresh the list
+                            loadFriends();
                         } catch (error) {
                             console.error(error);
                             Alert.alert('Error', 'Failed to remove friend');
@@ -218,7 +215,6 @@ export default function FriendsListScreen() {
 
     const renderFriendCard = (friend: Friend) => {
         const isOnline = friend.status === 'online';
-        // 2. FIX: Ensure name is safe to use
         const displayName = friend.friendName || 'User';
 
         // Fix safe location display
@@ -236,35 +232,30 @@ export default function FriendsListScreen() {
                 key={friend.id}
                 style={styles.friendCard}
                 onPress={() => router.push({
-                    pathname: '/(app)/user_profile',
+                    pathname: '/user_profile', 
                     params: { userId: friend.friendId } 
                 })}
                 activeOpacity={0.7}
             >
-                <View style={styles.friendContent}>
-                    {/* Avatar */}
-                    <View style={styles.avatarContainer}>
-                        <View style={styles.friendAvatar}>
-                            <Text style={styles.friendAvatarText}>
-                                {displayName.charAt(0).toUpperCase()}
-                            </Text>
+                <View style={styles.friendHeader}>
+                    <View style={styles.leftSection}>
+                        {/* Avatar */}
+                        <View style={styles.avatarContainer}>
+                            <View style={styles.friendAvatar}>
+                                <Text style={styles.friendAvatarText}>
+                                    {displayName.charAt(0).toUpperCase()}
+                                </Text>
+                            </View>
+                            {isOnline && <View style={styles.onlineBadge} />}
                         </View>
-                        {isOnline && <View style={styles.onlineBadge} />}
-                    </View>
 
-                    {/* Info */}
-                    <View style={styles.friendInfo}>
-                        <Text style={styles.friendName}>{displayName}</Text>
-                        
-                        {locationText && (
-                            <Text style={styles.location}>📍 {locationText}</Text>
-                        )}
-
-                        {friend.skillsTeaching && friend.skillsTeaching.length > 0 && (
-                            <Text style={styles.skillsText} numberOfLines={1}>
-                                Teaches: {friend.skillsTeaching.join(', ')}
-                            </Text>
-                        )}
+                        {/* Info */}
+                        <View style={styles.friendInfo}>
+                            <Text style={styles.friendName}>{displayName}</Text>
+                            {locationText && (
+                                <Text style={styles.location}>📍 {locationText}</Text>
+                            )}
+                        </View>
                     </View>
 
                     {/* Actions */}
@@ -298,6 +289,26 @@ export default function FriendsListScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                {/* Skills Row - Added to match Skills Page format */}
+                <View style={styles.skillsRow}>
+                    {friend.skillsTeaching && friend.skillsTeaching.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Teaches:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {friend.skillsTeaching.join(', ')}
+                            </Text>
+                        </View>
+                    )}
+                    {friend.skillsLearning && friend.skillsLearning.length > 0 && (
+                        <View style={styles.skillGroup}>
+                            <Text style={styles.skillLabel}>Learns:</Text>
+                            <Text style={styles.skillList} numberOfLines={1}>
+                                {friend.skillsLearning.join(', ')}
+                            </Text>
+                        </View>
+                    )}
+                </View>
             </TouchableOpacity>
         );
     };
@@ -316,7 +327,7 @@ export default function FriendsListScreen() {
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.title}>My Friends</Text>
@@ -455,9 +466,16 @@ const styles = StyleSheet.create({
         shadowRadius: 2,
         elevation: 1,
     },
-    friendContent: {
+    friendHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    leftSection: {
         flexDirection: 'row',
         alignItems: 'center',
+        flex: 1,
     },
     avatarContainer: {
         position: 'relative',
@@ -500,12 +518,29 @@ const styles = StyleSheet.create({
     location: {
         fontSize: 12,
         color: COLORS.textSecondary,
-        marginBottom: 4,
     },
-    skillsText: {
-        fontSize: 12,
+    // Skills Section
+    skillsRow: {
+        marginTop: 4,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
+        gap: 2,
+    },
+    skillGroup: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    skillLabel: {
+        fontSize: 11,
+        fontWeight: '700',
         color: COLORS.textSecondary,
-        fontStyle: 'italic',
+        width: 50,
+    },
+    skillList: {
+        flex: 1,
+        fontSize: 11,
+        color: COLORS.textPrimary,
     },
     // Actions
     actionButtons: {

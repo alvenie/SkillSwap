@@ -342,7 +342,14 @@ export default function ProfileScreen() {
                         </View>
                     ) : (
                         friends.slice(0, 3).map(friend => ( // Only showing first 3 here now
-                            <View key={friend.id} style={styles.friendCard}>
+                            <TouchableOpacity 
+                                key={friend.id} 
+                                style={styles.friendCard}
+                                onPress={() => router.push({
+                                    pathname: '/(app)/user_profile',
+                                    params: { userId: friend.friendId }
+                                })}
+                            >
                                 <View style={styles.friendInfoContainer}>
                                     <View style={styles.miniAvatar}>
                                         <Text style={styles.miniAvatarText}>{friend.displayName.charAt(0).toUpperCase()}</Text>
@@ -352,7 +359,7 @@ export default function ProfileScreen() {
                                 <TouchableOpacity style={styles.iconButton} onPress={() => handleMessageFriend(friend)}>
                                     <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.accentGreen} />
                                 </TouchableOpacity>
-                            </View>
+                            </TouchableOpacity>
                         ))
                     )}
                 </View>
@@ -522,7 +529,6 @@ const styles = StyleSheet.create({
     linkText: {
         fontSize: 14,
         fontWeight: '600',
-        color: COLORS.primaryBrandText, // Or accent color
         color: '#D97706', // Darker yellow/orange for links
     },
     // Skills Card

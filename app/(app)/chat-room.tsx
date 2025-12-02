@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
     addDoc,
     collection,
+    deleteDoc,
     doc,
     getDoc,
     onSnapshot,
@@ -205,6 +206,20 @@ export default function ChatRoomScreen() {
     }, [conversationReady, conversationId]);
 
     // Actions
+
+    // Clean up empty chats when backing out
+    const handleBackPress = async () => {
+        if (messages.length === 0 && conversationId) {
+            try {
+                // If no messages exist, remove the empty conversation document
+                await deleteDoc(doc(db, 'conversations', conversationId));
+                console.log('Cleaned up empty conversation');
+            } catch (error) {
+                console.error('Error cleaning up empty conversation:', error);
+            }
+        }
+        router.replace('/(app)/chat-list');
+    };
 
     const sendMessage = async () => {
         if (!messageText.trim() || !user) return;
@@ -414,7 +429,7 @@ export default function ChatRoomScreen() {
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.replace('/(app)/chat-list')} style={styles.iconBtn}>
+                    <TouchableOpacity onPress={handleBackPress} style={styles.iconBtn}>
                         <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
                     </TouchableOpacity>
                     {/* Uses dynamic headerTitle instead of static param */}
