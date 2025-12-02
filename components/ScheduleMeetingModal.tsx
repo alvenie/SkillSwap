@@ -1,10 +1,12 @@
 import { calendarService } from '@/services/apiService';
-import { Ionicons } from '@expo/vector-icons'; // Assuming you have this installed as per other files
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -13,15 +15,15 @@ import {
     View,
 } from 'react-native';
 
-// Theme Configuration
+// --- Theme Configuration ---
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937', // Dark Gray
     background: '#FFFFFF',
-    textPrimary: '#1F2937',
-    textSecondary: '#6B7280',
+    textPrimary: '#1F2937', // Dark Gray (High Contrast)
+    textSecondary: '#6B7280', // Medium Gray
     border: '#E5E7EB',
-    lightGray: '#F9FAFB',
+    lightGray: '#F3F4F6', // Slightly darker gray for better input contrast
     accentRed: '#EF4444',
 };
 
@@ -50,6 +52,7 @@ export default function ScheduleMeetingModal({
     const [selectedMinute, setSelectedMinute] = useState<number>(0);
     const [duration, setDuration] = useState<number>(60);
     const [loading, setLoading] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     // Reset form when opening
     React.useEffect(() => {
@@ -58,7 +61,6 @@ export default function ScheduleMeetingModal({
             setDescription('');
             setLocation('');
             setDuration(60);
-            // Default to next hour
             const nextHour = new Date();
             nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
             setSelectedDate(nextHour);
@@ -75,11 +77,8 @@ export default function ScheduleMeetingModal({
 
         setLoading(true);
         try {
-            // Construct start time
             const startTime = new Date(selectedDate);
             startTime.setHours(selectedHour, selectedMinute, 0, 0);
-
-            // Construct end time
             const endTime = new Date(startTime.getTime() + duration * 60000);
 
             await calendarService.createMeeting({
@@ -103,16 +102,24 @@ export default function ScheduleMeetingModal({
         }
     };
 
-    // Helper to format date string
+    const onDateChange = (event: any, date?: Date) => {
+        if (Platform.OS === 'android') {
+            setShowDatePicker(false);
+        }
+        if (date) {
+            setSelectedDate(date);
+        }
+    };
+
     const dateString = useMemo(() => {
         return selectedDate.toLocaleDateString(undefined, {
             weekday: 'short',
             month: 'short',
             day: 'numeric',
+            year: 'numeric', // Added year for clarity
         });
     }, [selectedDate]);
 
-    // Generate time slots (simple implementation)
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const minutes = [0, 15, 30, 45];
 
@@ -144,14 +151,26 @@ export default function ScheduleMeetingModal({
                             />
                         </View>
 
-                        {/* Date Picker (Simplified) */}
+                        {/* Date Picker (High Contrast) */}
                         <View style={styles.formGroup}>
                             <Text style={styles.label}>Date</Text>
-                            <View style={styles.dateDisplay}>
-                                <Ionicons name="calendar-outline" size={20} color={COLORS.primaryBrandText} />
-                                <Text style={styles.dateText}>{dateString}</Text>
-                                {/* In a real app, clicking this would open a full calendar picker */}
-                            </View>
+                            <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+                                <View style={styles.dateDisplay}>
+                                    <Ionicons name="calendar" size={22} color={COLORS.textPrimary} /> 
+                                    <Text style={styles.dateText}>{dateString}</Text>
+                                    <Ionicons name="chevron-down" size={16} color={COLORS.textSecondary} style={{marginLeft: 'auto'}} />
+                                </View>
+                            </TouchableOpacity>
+                            {showDatePicker && (
+                                <DateTimePicker
+                                    value={selectedDate}
+                                    mode="date"
+                                    display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                                    onChange={onDateChange}
+                                    minimumDate={new Date()}
+                                    themeVariant="light" // Force light theme for better visibility
+                                />
+                            )}
                         </View>
 
                         {/* Time Picker Row */}
@@ -256,14 +275,14 @@ export default function ScheduleMeetingModal({
                         <View style={styles.summaryCard}>
                             <Text style={styles.summaryTitle}>Meeting Summary</Text>
                             <View style={styles.summaryRow}>
-                                <Ionicons name="time-outline" size={18} color={COLORS.textSecondary} />
+                                <Ionicons name="time-outline" size={18} color={COLORS.textPrimary} />
                                 <Text style={styles.summaryText}>
                                     {selectedHour.toString().padStart(2, '0')}:{selectedMinute.toString().padStart(2, '0')} - 
                                     {new Date(new Date().setHours(selectedHour, selectedMinute + duration)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                 </Text>
                             </View>
                             <View style={styles.summaryRow}>
-                                <Ionicons name="hourglass-outline" size={18} color={COLORS.textSecondary} />
+                                <Ionicons name="hourglass-outline" size={18} color={COLORS.textPrimary} />
                                 <Text style={styles.summaryText}>{duration} minutes</Text>
                             </View>
                         </View>
@@ -354,9 +373,10 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: COLORS.border,
         borderRadius: 12,
-        padding: 12,
+        padding: 14, // Increased padding
         fontSize: 16,
         color: COLORS.textPrimary,
+        fontWeight: '500', // Made text slightly bolder
     },
     textArea: {
         height: 80,
@@ -366,16 +386,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: COLORS.lightGray,
-        padding: 12,
+        padding: 14,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: COLORS.border,
-        gap: 10,
+        gap: 12,
     },
     dateText: {
-        fontSize: 16,
+        fontSize: 17, // Increased font size
         color: COLORS.textPrimary,
-        fontWeight: '600',
+        fontWeight: '700', // Bold text
     },
     row: {
         flexDirection: 'row',
@@ -389,8 +409,8 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     timeChip: {
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
         borderRadius: 8,
         marginRight: 4,
     },
@@ -413,7 +433,7 @@ const styles = StyleSheet.create({
     },
     minuteChip: {
         flex: 1,
-        paddingVertical: 10,
+        paddingVertical: 12,
         alignItems: 'center',
         backgroundColor: COLORS.lightGray,
         borderRadius: 8,
@@ -439,7 +459,7 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     durationChip: {
-        paddingVertical: 10,
+        paddingVertical: 12,
         paddingHorizontal: 16,
         borderRadius: 20,
         backgroundColor: COLORS.lightGray,
@@ -461,18 +481,18 @@ const styles = StyleSheet.create({
         color: COLORS.primaryBrandText,
         fontWeight: '800',
     },
-    // Summary Card (Updated to be cleaner)
+    // Summary Card
     summaryCard: {
-        backgroundColor: COLORS.lightGray,
+        backgroundColor: '#FFFBEB', // Light Yellow Background
         padding: 16,
         borderRadius: 16,
         marginTop: 10,
         borderWidth: 1,
-        borderColor: COLORS.border,
+        borderColor: COLORS.primaryBrand, // Yellow Border
     },
     summaryTitle: {
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '800',
         color: COLORS.textPrimary,
         marginBottom: 12,
     },
@@ -483,9 +503,9 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     summaryText: {
-        fontSize: 14,
+        fontSize: 15,
         color: COLORS.textPrimary,
-        fontWeight: '500',
+        fontWeight: '600',
     },
     // Footer
     footer: {
@@ -502,7 +522,7 @@ const styles = StyleSheet.create({
     },
     cancelButton: {
         flex: 1,
-        paddingVertical: 14,
+        paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 12,
@@ -510,12 +530,12 @@ const styles = StyleSheet.create({
     },
     cancelButtonText: {
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '700',
         color: COLORS.textSecondary,
     },
     submitButton: {
         flex: 2,
-        paddingVertical: 14,
+        paddingVertical: 16,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 12,
