@@ -52,14 +52,16 @@ export default function SignUp() {
             await setDoc(doc(db, 'users', userCredential.user.uid), {
                 uid: userCredential.user.uid,
                 email: userCredential.user.email,
-                username: username, // Saved distinct username field
-                displayName: username, // Set display name to the chosen username
+                username: username,
+                displayName: username,
                 status: 'online',
                 lastSeen: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
                 friendCount: 0,
                 skillsTeaching: [],
                 skillsLearning: [],
+                averageRating: 0,    // ADDED FOR REVIEWS
+                reviewCount: 0,      // ADDED FOR REVIEWS
             });
 
             Alert.alert('Success', 'Account created successfully!');
@@ -72,16 +74,16 @@ export default function SignUp() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <KeyboardAvoidingView 
+            <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardView}
             >
                 <View style={styles.content}>
-                    
+
                     {/* Header Section */}
                     <View style={styles.headerContainer}>
-                        <Image 
-                            source={require('../../assets/images/SkillSwap.png')} 
+                        <Image
+                            source={require('../../assets/images/SkillSwap.png')}
                             style={styles.logo}
                             resizeMode="contain"
                         />
@@ -91,8 +93,8 @@ export default function SignUp() {
 
                     {/* Form Section */}
                     <View style={styles.formContainer}>
-                        
-                        {/* Username Input - ADDED */}
+
+                        {/* Username Input */}
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>Username</Text>
                             <TextInput
@@ -130,8 +132,8 @@ export default function SignUp() {
                             />
                         </View>
 
-                        <TouchableOpacity 
-                            style={styles.signUpButton} 
+                        <TouchableOpacity
+                            style={styles.signUpButton}
                             onPress={handleSignUp}
                             disabled={loading}
                         >
@@ -172,7 +174,7 @@ const styles = StyleSheet.create({
     },
     headerContainer: {
         alignItems: 'center',
-        marginBottom: 30, // Slightly reduced to fit new field
+        marginBottom: 30,
     },
     logo: {
         width: 80,
@@ -193,7 +195,7 @@ const styles = StyleSheet.create({
         width: '100%',
     },
     inputGroup: {
-        marginBottom: 16, // Reduced margin to keep form compact
+        marginBottom: 16,
     },
     label: {
         fontSize: 14,
@@ -207,7 +209,7 @@ const styles = StyleSheet.create({
         borderColor: COLORS.border,
         borderRadius: 12,
         paddingHorizontal: 16,
-        paddingVertical: 12, // Slightly reduced vertical padding
+        paddingVertical: 12,
         fontSize: 16,
         color: COLORS.textPrimary,
     },

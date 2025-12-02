@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
+import StarRating from '../../components/StarRating';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
@@ -32,6 +33,7 @@ const COLORS = {
     textSecondary: '#6B7280',
     border: '#E5E7EB',
     accentGreen: '#10B981',
+    accentBlue: '#3B82F6',
     lightGray: '#F9FAFB',
 };
 
@@ -46,6 +48,8 @@ interface UserWithSkills {
     bio?: string;
     location?: any;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 type RoleFilterType = 'All' | 'Teaches' | 'Learns';
@@ -68,7 +72,7 @@ export default function SkillsScreen() {
     // Filters State
     const [selectedSkill, setSelectedSkill] = useState<string>('All');
     const [roleFilter, setRoleFilter] = useState<RoleFilterType>('All');
-    const [showFilterModal, setShowFilterModal] = useState(false); // New Modal State
+    const [showFilterModal, setShowFilterModal] = useState(false);
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
@@ -124,6 +128,8 @@ export default function SkillsScreen() {
                             bio: data.bio || '',
                             location: data.location || null,
                             status: data.status || 'offline',
+                            averageRating: data.averageRating || 0,
+                            reviewCount: data.reviewCount || 0,
                         });
                         data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
                         data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
@@ -314,6 +320,14 @@ export default function SkillsScreen() {
                             <Text style={styles.location} numberOfLines={1}>📍 {locationText}</Text>
                         )}
 
+                        {/* Star Rating */}
+                        <StarRating
+                            rating={targetUser.averageRating || 0}
+                            reviewCount={targetUser.reviewCount || 0}
+                            size="small"
+                            showCount={true}
+                        />
+
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={1}>
                                 {targetUser.bio}
@@ -372,7 +386,7 @@ export default function SkillsScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
-            {/* Updated Header with Filter Icon */}
+            {/* Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
                 <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
@@ -454,7 +468,7 @@ export default function SkillsScreen() {
                 <View style={{ height: 40 }} />
             </ScrollView>
 
-            {/* FILTER MODAL (New) */}
+            {/* FILTER MODAL */}
             <Modal visible={showFilterModal} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                     <View style={styles.filterModalContent}>
@@ -491,7 +505,7 @@ export default function SkillsScreen() {
                 </View>
             </Modal>
 
-            {/* Request Modal (Existing) */}
+            {/* Request Modal */}
             <Modal visible={showRequestModal} animationType="fade" transparent>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -535,7 +549,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: COLORS.background,
     },
-    // Header
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -552,7 +565,6 @@ const styles = StyleSheet.create({
     filterIconBtn: {
         padding: 8,
     },
-    // Search
     searchSection: {
         paddingHorizontal: 20,
         marginBottom: 12,
@@ -572,7 +584,6 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: COLORS.textPrimary,
     },
-    // Chips
     chipsContainer: {
         marginBottom: 10,
     },
@@ -600,7 +611,6 @@ const styles = StyleSheet.create({
     chipTextActive: {
         color: COLORS.primaryBrandText,
     },
-    // List
     listContainer: {
         flex: 1,
         backgroundColor: '#FAFAFA',
@@ -675,6 +685,7 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: COLORS.textSecondary,
         fontStyle: 'italic',
+        marginTop: 4,
     },
     cardAction: {
         marginLeft: 8,
@@ -703,7 +714,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    // Skills Row
     skillsRow: {
         marginTop: 4,
         paddingTop: 8,
@@ -726,7 +736,6 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: COLORS.textPrimary,
     },
-    // Pagination
     paginationContainer: {
         flexDirection: 'row',
         justifyContent: 'center',

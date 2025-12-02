@@ -1,12 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import {
+    addDoc,
+    collection,
+    doc,
+    DocumentData,
+    endAt,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    QueryDocumentSnapshot,
+    startAfter,
+    startAt,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    FlatList,
     Modal,
-    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -16,11 +31,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
+import StarRating from '../../components/StarRating';
 
 // --- Theme Configuration ---
 const COLORS = {
-    primaryBrand: '#FCD34D', // Mustard Yellow
-    primaryBrandText: '#1F2937', // Dark Gray
+    primaryBrand: '#FCD34D',
+    primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
     textPrimary: '#1F2937',
@@ -39,8 +55,10 @@ interface UserProfile {
     bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    location?: string;
+    location?: any;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 export default function FindFriendsScreen() {
@@ -49,8 +67,10 @@ export default function FindFriendsScreen() {
 
     // Data State
     const [users, setUsers] = useState<UserProfile[]>([]);
-    const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+    const [hasMore, setHasMore] = useState(true);
     const [searchText, setSearchText] = useState('');
 
     // Request State
@@ -64,41 +84,116 @@ export default function FindFriendsScreen() {
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
     useEffect(() => {
-        loadUsers();
+        loadUsers(false);
         loadSentRequests();
         loadExistingFriends();
     }, []);
 
-    const loadUsers = async () => {
-        try {
-            setLoading(true);
-            const usersRef = collection(db, 'users');
-            const querySnapshot = await getDocs(usersRef);
+    // Consolidated Load Function with Pagination
+    const loadUsers = async (loadMore: boolean = false) => {
+        if (loadMore && (loadingMore || !hasMore)) return;
 
-            const usersData: UserProfile[] = [];
-            querySnapshot.forEach((doc) => {
-                if (doc.id !== user?.uid) {
-                    const data = doc.data();
-                    usersData.push({
-                        uid: doc.id,
+        try {
+            if (loadMore) {
+                setLoadingMore(true);
+            } else {
+                setLoading(true);
+            }
+
+            const usersRef = collection(db, 'users');
+            const PAGE_SIZE = 10;
+
+            let q;
+
+            // Search Logic (Server-side Prefix Search)
+            if (searchText.trim()) {
+                const term = searchText.trim();
+
+                if (loadMore && lastDoc) {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        startAt(term),
+                        endAt(term + '\uf8ff'),
+                        startAfter(lastDoc),
+                        limit(PAGE_SIZE)
+                    );
+                } else {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        startAt(term),
+                        endAt(term + '\uf8ff'),
+                        limit(PAGE_SIZE)
+                    );
+                }
+            } else {
+                // Default Logic (Browse All)
+                if (loadMore && lastDoc) {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        startAfter(lastDoc),
+                        limit(PAGE_SIZE)
+                    );
+                } else {
+                    q = query(
+                        usersRef,
+                        orderBy('displayName'),
+                        limit(PAGE_SIZE)
+                    );
+                }
+            }
+
+            const querySnapshot = await getDocs(q);
+
+            // Check if we hit the end
+            if (querySnapshot.docs.length < PAGE_SIZE) {
+                setHasMore(false);
+            } else {
+                setHasMore(true);
+            }
+
+            // Update Cursor
+            if (querySnapshot.docs.length > 0) {
+                setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
+            }
+
+            const newUsers: UserProfile[] = [];
+            querySnapshot.forEach((docSnap) => {
+                if (docSnap.id !== user?.uid) {
+                    const data = docSnap.data();
+                    newUsers.push({
+                        uid: docSnap.id,
                         email: data.email || '',
                         displayName: data.displayName || data.email || 'User',
                         bio: data.bio || '',
                         skillsTeaching: data.skillsTeaching || [],
                         skillsLearning: data.skillsLearning || [],
-                        location: data.location || '',
+                        location: data.location || null,
                         status: data.status || 'offline',
+                        averageRating: data.averageRating || 0,
+                        reviewCount: data.reviewCount || 0,
                     });
                 }
             });
 
-            setUsers(usersData);
-            setFilteredUsers(usersData);
+            if (loadMore) {
+                // Append unique users
+                setUsers(prev => {
+                    const existingIds = new Set(prev.map(u => u.uid));
+                    const uniqueNew = newUsers.filter(u => !existingIds.has(u.uid));
+                    return [...prev, ...uniqueNew];
+                });
+            } else {
+                setUsers(newUsers);
+            }
+
         } catch (error: any) {
             console.error('Error loading users:', error);
-            Alert.alert('Error', 'Failed to load users');
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     };
 
@@ -139,20 +234,17 @@ export default function FindFriendsScreen() {
 
     const handleSearch = (text: string) => {
         setSearchText(text);
-        if (text.trim() === '') {
-            setFilteredUsers(users);
-        } else {
-            const lowerText = text.toLowerCase();
-            const filtered = users.filter(
-                (u) =>
-                    u.displayName.toLowerCase().includes(lowerText) ||
-                    u.bio?.toLowerCase().includes(lowerText) ||
-                    u.skillsTeaching.some((skill) => skill.toLowerCase().includes(lowerText)) ||
-                    u.skillsLearning.some((skill) => skill.toLowerCase().includes(lowerText))
-            );
-            setFilteredUsers(filtered);
-        }
     };
+
+    // Trigger search when text changes with debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setLastDoc(null);
+            setHasMore(true);
+            loadUsers(false);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchText]);
 
     const openRequestModal = (targetUser: UserProfile) => {
         setSelectedUser(targetUser);
@@ -189,56 +281,71 @@ export default function FindFriendsScreen() {
         }
     };
 
-    const renderUserCard = (targetUser: UserProfile) => {
-        const isFriend = existingFriends.includes(targetUser.uid);
-        const requestSent = sentRequests.includes(targetUser.uid);
-        const isOnline = targetUser.status === 'online';
+    const renderUserCard = ({ item }: { item: UserProfile }) => {
+        const isFriend = existingFriends.includes(item.uid);
+        const requestSent = sentRequests.includes(item.uid);
+        const isOnline = item.status === 'online';
+
+        let locationText = null;
+        if (item.location) {
+            if (typeof item.location === 'string') {
+                locationText = item.location;
+            } else if (typeof item.location === 'object') {
+                locationText = "Location Shared";
+            }
+        }
 
         return (
-            <View key={targetUser.uid} style={styles.userCard}>
+            <View style={styles.userCard}>
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
                             <Text style={styles.avatarText}>
-                                {targetUser.displayName.charAt(0).toUpperCase()}
+                                {item.displayName.charAt(0).toUpperCase()}
                             </Text>
                         </View>
                         {isOnline && <View style={styles.onlineBadge} />}
                     </View>
                     <View style={styles.userInfo}>
-                        <Text style={styles.userName}>{targetUser.displayName}</Text>
-                        {targetUser.location && (
-                            <Text style={styles.location}>📍 {targetUser.location}</Text>
+                        <Text style={styles.userName}>{item.displayName}</Text>
+                        {locationText && (
+                            <Text style={styles.location}>📍 {locationText}</Text>
                         )}
-                        {targetUser.bio && (
+
+                        {/* Star Rating */}
+                        <StarRating
+                            rating={item.averageRating || 0}
+                            reviewCount={item.reviewCount || 0}
+                            size="small"
+                        />
+
+                        {item.bio && (
                             <Text style={styles.bio} numberOfLines={2}>
-                                {targetUser.bio}
+                                {item.bio}
                             </Text>
                         )}
                     </View>
                 </View>
 
-                {/* Compact Skills Section (Updated to match Skills Page) */}
                 <View style={styles.skillsRow}>
-                    {targetUser.skillsTeaching.length > 0 && (
+                    {item.skillsTeaching.length > 0 && (
                         <View style={styles.skillGroup}>
                             <Text style={styles.skillLabel}>Teaches:</Text>
                             <Text style={styles.skillList} numberOfLines={1}>
-                                {targetUser.skillsTeaching.join(', ')}
+                                {item.skillsTeaching.join(', ')}
                             </Text>
                         </View>
                     )}
-                    {targetUser.skillsLearning.length > 0 && (
+                    {item.skillsLearning.length > 0 && (
                         <View style={styles.skillGroup}>
                             <Text style={styles.skillLabel}>Learns:</Text>
                             <Text style={styles.skillList} numberOfLines={1}>
-                                {targetUser.skillsLearning.join(', ')}
+                                {item.skillsLearning.join(', ')}
                             </Text>
                         </View>
                     )}
                 </View>
 
-                {/* Action Button */}
                 <View style={styles.actionContainer}>
                     {isFriend ? (
                         <View style={styles.statusContainer}>
@@ -253,7 +360,7 @@ export default function FindFriendsScreen() {
                     ) : (
                         <TouchableOpacity
                             style={styles.addFriendButton}
-                            onPress={() => openRequestModal(targetUser)}
+                            onPress={() => openRequestModal(item)}
                         >
                             <Text style={styles.addFriendButtonText}>+ Add Friend</Text>
                         </TouchableOpacity>
@@ -263,15 +370,14 @@ export default function FindFriendsScreen() {
         );
     };
 
-    if (loading) {
+    const renderFooter = () => {
+        if (!loadingMore) return <View style={styles.bottomSpacer} />;
         return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
-                </View>
-            </SafeAreaView>
+            <View style={{ paddingVertical: 20 }}>
+                <ActivityIndicator size="small" color={COLORS.primaryBrand} />
+            </View>
         );
-    }
+    };
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -283,35 +389,44 @@ export default function FindFriendsScreen() {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={styles.searchContainer}>
-                    <View style={styles.searchBox}>
-                        <Ionicons name="search" size={20} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Search by name, skills, or bio..."
-                            value={searchText}
-                            onChangeText={handleSearch}
-                            placeholderTextColor={COLORS.textSecondary}
-                        />
-                    </View>
+            <View style={styles.searchContainer}>
+                <View style={styles.searchBox}>
+                    <Ionicons name="search" size={20} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Search by name..."
+                        value={searchText}
+                        onChangeText={handleSearch}
+                        placeholderTextColor={COLORS.textSecondary}
+                    />
                 </View>
+            </View>
 
-                <Text style={styles.resultCount}>
-                    {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'} found
-                </Text>
-
-                {filteredUsers.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Ionicons name="people-outline" size={64} color={COLORS.border} />
-                        <Text style={styles.emptyText}>No users found</Text>
-                    </View>
-                ) : (
-                    filteredUsers.map(renderUserCard)
-                )}
-
-                <View style={styles.bottomSpacer} />
-            </ScrollView>
+            {loading && !loadingMore ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={COLORS.primaryBrand} />
+                </View>
+            ) : (
+                <FlatList
+                    data={users}
+                    renderItem={renderUserCard}
+                    keyExtractor={(item) => item.uid}
+                    contentContainerStyle={styles.listContent}
+                    onEndReached={() => {
+                        if (hasMore && !loadingMore && !loading) {
+                            loadUsers(true);
+                        }
+                    }}
+                    onEndReachedThreshold={0.5}
+                    ListFooterComponent={renderFooter}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="people-outline" size={64} color={COLORS.border} />
+                            <Text style={styles.emptyText}>No users found</Text>
+                        </View>
+                    }
+                />
+            )}
 
             {/* Modal */}
             <Modal visible={showRequestModal} animationType="slide" transparent>
@@ -387,8 +502,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    content: {
-        flex: 1,
+    listContent: {
+        paddingBottom: 20,
     },
     header: {
         flexDirection: 'row',
@@ -427,12 +542,6 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: COLORS.textPrimary,
     },
-    resultCount: {
-        fontSize: 13,
-        color: COLORS.textSecondary,
-        paddingHorizontal: 16,
-        marginBottom: 12,
-    },
     emptyContainer: {
         alignItems: 'center',
         justifyContent: 'center',
@@ -443,7 +552,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: COLORS.textSecondary,
     },
-    // User Card
     userCard: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -509,8 +617,8 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: COLORS.textSecondary,
         lineHeight: 18,
+        marginTop: 4,
     },
-    // UPDATED SKILLS SECTION STYLES
     skillsRow: {
         marginTop: 4,
         paddingTop: 8,
@@ -534,7 +642,6 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: COLORS.textPrimary,
     },
-    // Action Buttons
     actionContainer: {
         borderTopWidth: 1,
         borderTopColor: COLORS.lightGray,
@@ -565,7 +672,6 @@ const styles = StyleSheet.create({
     bottomSpacer: {
         height: 40,
     },
-    // Modal
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',

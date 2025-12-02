@@ -15,8 +15,10 @@ import { useRouter } from 'expo-router';
 import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
+import StarRating from '../../components/StarRating';  // ADDED IMPORT
 
 // type definition for users with their teaching/learning skills
+// UPDATED INTERFACE - Added rating fields
 interface UserWithSkills {
     id: string;
     uid: string;
@@ -27,6 +29,8 @@ interface UserWithSkills {
     bio?: string;
     location?: string;
     status: 'online' | 'offline' | 'in-call';
+    averageRating?: number;    // ADDED
+    reviewCount?: number;      // ADDED
 }
 
 // screen for browsing users by their skills and sending friend requests
@@ -84,6 +88,8 @@ export default function BrowseSkillsScreen() {
                             bio: data.bio || '',
                             location: data.location || '',
                             status: data.status || 'offline',
+                            averageRating: data.averageRating || 0,    // ADDED
+                            reviewCount: data.reviewCount || 0,        // ADDED
                         });
                     }
                 }
@@ -261,6 +267,14 @@ export default function BrowseSkillsScreen() {
                         {targetUser.location && (
                             <Text style={styles.location}>📍 {targetUser.location}</Text>
                         )}
+
+                        {/* ADDED STAR RATING */}
+                        <StarRating
+                            rating={targetUser.averageRating || 0}
+                            reviewCount={targetUser.reviewCount || 0}
+                            size="small"
+                        />
+
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={2}>
                                 {targetUser.bio}
@@ -540,6 +554,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#666',
         lineHeight: 18,
+        marginTop: 4,
     },
     skillsSection: {
         marginTop: 12,

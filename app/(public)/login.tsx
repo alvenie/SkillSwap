@@ -59,6 +59,8 @@ export default function Login() {
                     friendCount: 0,
                     skillsTeaching: [],
                     skillsLearning: [],
+                    averageRating: 0,    // ADDED FOR REVIEWS
+                    reviewCount: 0,      // ADDED FOR REVIEWS
                     createdAt: new Date().toISOString(),
                 });
             } else {
@@ -66,7 +68,7 @@ export default function Login() {
                     status: 'online',
                     lastSeen: new Date().toISOString(),
                 };
-                
+
                 // Backwards compatibility check
                 if (userDoc.data().friendCount === undefined) {
                     updateData.friendCount = 0;
@@ -84,16 +86,16 @@ export default function Login() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <KeyboardAvoidingView 
+            <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardView}
             >
                 <View style={styles.content}>
-                    
+
                     {/* Logo Section */}
                     <View style={styles.headerContainer}>
-                        <Image 
-                            source={require('../../assets/images/SkillSwap.png')} 
+                        <Image
+                            source={require('../../assets/images/SkillSwap.png')}
                             style={styles.logo}
                             resizeMode="contain"
                         />
@@ -128,8 +130,8 @@ export default function Login() {
                             />
                         </View>
 
-                        <TouchableOpacity 
-                            style={styles.loginButton} 
+                        <TouchableOpacity
+                            style={styles.loginButton}
                             onPress={handleLogin}
                             disabled={loading}
                         >
@@ -240,6 +242,6 @@ const styles = StyleSheet.create({
     linkText: {
         fontSize: 14,
         fontWeight: '700',
-        color: COLORS.textPrimary, 
+        color: COLORS.textPrimary,
     },
 });

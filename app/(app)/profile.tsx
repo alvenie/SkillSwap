@@ -245,12 +245,12 @@ export default function ProfileScreen() {
                         <Text style={styles.userName}>{profile?.displayName || 'User'}</Text>
                         <Text style={styles.userEmail}>{profile?.email}</Text>
                         
-                        {/*{profile?.location && (
+                        {/* {profile?.location && (
                             <View style={styles.locationRow}>
                                 <Ionicons name="location-outline" size={16} color={COLORS.textSecondary} />
                                 <Text style={styles.locationText}>{profile.location}</Text>
                             </View>
-                        )}*/}
+                        )} */}
 
                         {profile?.bio && (
                             <Text style={styles.bioText}>{profile.bio}</Text>

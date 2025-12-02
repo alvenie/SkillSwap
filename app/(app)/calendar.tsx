@@ -11,6 +11,10 @@ import {
 } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { calendarService } from '@/services/apiService';
+import ReviewModal from '@/components/ReviewModal';
+import CalendarView from '@/components/CalendarView';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
 
 interface Meeting {
     meetingId: string;
@@ -35,9 +39,19 @@ export default function CalendarScreen() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
+    // Calendar state
+    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
+
+    // Review modal state
+    const [showReviewModal, setShowReviewModal] = useState(false);
+    const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+    const [reviewedMeetings, setReviewedMeetings] = useState<string[]>([]);
+
     useEffect(() => {
         if (user) {
             loadMeetings();
+            loadReviewedMeetings();
         }
     }, [user]);
 
@@ -58,6 +72,21 @@ export default function CalendarScreen() {
         } finally {
             setLoading(false);
             setRefreshing(false);
+        }
+    };
+
+    const loadReviewedMeetings = async () => {
+        if (!user) return;
+
+        try {
+            const reviewsRef = collection(db, 'reviews');
+            const q = query(reviewsRef, where('reviewerId', '==', user.uid));
+            const snapshot = await getDocs(q);
+
+            const meetingIds = snapshot.docs.map(doc => doc.data().meetingId);
+            setReviewedMeetings(meetingIds);
+        } catch (error) {
+            console.error('Error loading reviewed meetings:', error);
         }
     };
 
@@ -105,6 +134,21 @@ export default function CalendarScreen() {
         ]);
     };
 
+    const handleOpenReview = (meeting: Meeting) => {
+        setSelectedMeeting(meeting);
+        setShowReviewModal(true);
+    };
+
+    const handleCloseReview = () => {
+        setShowReviewModal(false);
+        setSelectedMeeting(null);
+        loadReviewedMeetings();
+    };
+
+    const handleDateSelect = (date: Date) => {
+        setSelectedDate(date);
+    };
+
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
@@ -138,9 +182,48 @@ export default function CalendarScreen() {
         }
     };
 
+    const isSameDay = (date1: Date, date2: string) => {
+        const d2 = new Date(date2);
+        return (
+            date1.getDate() === d2.getDate() &&
+            date1.getMonth() === d2.getMonth() &&
+            date1.getFullYear() === d2.getFullYear()
+        );
+    };
+
+    const isMeetingCompleted = (endTime: string) => {
+        return new Date(endTime) < new Date();
+    };
+
+    const hasReviewed = (meetingId: string) => {
+        return reviewedMeetings.includes(meetingId);
+    };
+
+    // Get meetings for selected date
+    const getMeetingsForDate = () => {
+        if (viewMode === 'list') {
+            return meetings.filter(m => m.status === 'accepted');
+        }
+        return meetings.filter(
+            (m) =>
+                m.status === 'accepted' &&
+                isSameDay(selectedDate, m.startTime)
+        );
+    };
+
+    // Get all meeting dates for calendar dots
+    const getMeetingDates = () => {
+        return meetings
+            .filter(m => m.status === 'accepted')
+            .map(m => m.startTime);
+    };
+
     const renderMeetingCard = (meeting: Meeting, isPending: boolean = false) => {
         const isRequester = meeting.requesterId === user?.uid;
         const otherPersonName = isRequester ? meeting.receiverName : meeting.requesterName;
+        const otherPersonId = isRequester ? meeting.receiverId : meeting.requesterId;
+        const isCompleted = isMeetingCompleted(meeting.endTime);
+        const canReview = isCompleted && meeting.status === 'accepted' && !hasReviewed(meeting.meetingId);
 
         return (
             <View key={meeting.meetingId} style={styles.meetingCard}>
@@ -194,7 +277,7 @@ export default function CalendarScreen() {
                     </View>
                 )}
 
-                {meeting.status === 'accepted' && (
+                {meeting.status === 'accepted' && !isCompleted && (
                     <TouchableOpacity
                         style={[styles.actionButton, styles.cancelButton]}
                         onPress={() => handleCancelMeeting(meeting.meetingId)}
@@ -202,17 +285,26 @@ export default function CalendarScreen() {
                         <Text style={styles.actionButtonText}>Cancel Meeting</Text>
                     </TouchableOpacity>
                 )}
+
+                {canReview && (
+                    <TouchableOpacity
+                        style={[styles.actionButton, styles.reviewButton]}
+                        onPress={() => handleOpenReview(meeting)}
+                    >
+                        <Text style={styles.reviewButtonText}>⭐ Leave a Review</Text>
+                    </TouchableOpacity>
+                )}
+
+                {hasReviewed(meeting.meetingId) && (
+                    <View style={styles.reviewedBadge}>
+                        <Text style={styles.reviewedText}>✓ Reviewed</Text>
+                    </View>
+                )}
             </View>
         );
     };
 
-    const upcomingMeetings = meetings.filter(
-        (m) => m.status === 'accepted' && new Date(m.startTime) > new Date()
-    );
-
-    const pastMeetings = meetings.filter(
-        (m) => m.status === 'accepted' && new Date(m.startTime) <= new Date()
-    );
+    const selectedDateMeetings = getMeetingsForDate();
 
     if (loading) {
         return (
@@ -224,52 +316,133 @@ export default function CalendarScreen() {
     }
 
     return (
-        <ScrollView
-            style={styles.container}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadMeetings} />}
-        >
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>My Calendar</Text>
-                <Text style={styles.headerSubtitle}>{meetings.length} total meetings</Text>
-            </View>
-
-            {pendingRequests.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>
-                        📬 Pending Requests ({pendingRequests.length})
-                    </Text>
-                    {pendingRequests.map((meeting) => renderMeetingCard(meeting, true))}
+        <>
+            <ScrollView
+                style={styles.container}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadMeetings} />}
+            >
+                <View style={styles.header}>
+                    <Text style={styles.headerTitle}>My Calendar</Text>
+                    <Text style={styles.headerSubtitle}>{meetings.length} total meetings</Text>
                 </View>
-            )}
 
-            {upcomingMeetings.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>
-                        📅 Upcoming Meetings ({upcomingMeetings.length})
-                    </Text>
-                    {upcomingMeetings.map((meeting) => renderMeetingCard(meeting))}
+                {/* View Mode Toggle */}
+                <View style={styles.toggleContainer}>
+                    <TouchableOpacity
+                        style={[styles.toggleButton, viewMode === 'calendar' && styles.toggleButtonActive]}
+                        onPress={() => setViewMode('calendar')}
+                    >
+                        <Text style={[styles.toggleText, viewMode === 'calendar' && styles.toggleTextActive]}>
+                            📅 Calendar View
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.toggleButton, viewMode === 'list' && styles.toggleButtonActive]}
+                        onPress={() => setViewMode('list')}
+                    >
+                        <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>
+                            📋 List View
+                        </Text>
+                    </TouchableOpacity>
                 </View>
-            )}
 
-            {pastMeetings.length > 0 && (
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>
-                        📝 Past Meetings ({pastMeetings.length})
-                    </Text>
-                    {pastMeetings.map((meeting) => renderMeetingCard(meeting))}
-                </View>
-            )}
+                {/* Pending Requests */}
+                {pendingRequests.length > 0 && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>
+                            📬 Pending Requests ({pendingRequests.length})
+                        </Text>
+                        {pendingRequests.map((meeting) => renderMeetingCard(meeting, true))}
+                    </View>
+                )}
 
-            {meetings.length === 0 && pendingRequests.length === 0 && (
-                <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateIcon}>📅</Text>
-                    <Text style={styles.emptyStateText}>No meetings scheduled</Text>
-                    <Text style={styles.emptyStateSubtext}>
-                        Schedule a meetup with your friends to get started!
-                    </Text>
-                </View>
+                {/* Calendar View */}
+                {viewMode === 'calendar' && (
+                    <View style={styles.section}>
+                        <CalendarView
+                            onDateSelect={handleDateSelect}
+                            selectedDate={selectedDate}
+                            meetingDates={getMeetingDates()}
+                        />
+
+                        {/* Selected Date Meetings */}
+                        <View style={styles.dateSection}>
+                            <Text style={styles.dateSectionTitle}>
+                                {selectedDate.toLocaleDateString('en-US', {
+                                    weekday: 'long',
+                                    month: 'long',
+                                    day: 'numeric',
+                                    year: 'numeric',
+                                })}
+                            </Text>
+                            {selectedDateMeetings.length === 0 ? (
+                                <View style={styles.noMeetings}>
+                                    <Text style={styles.noMeetingsText}>No meetings on this date</Text>
+                                </View>
+                            ) : (
+                                selectedDateMeetings.map((meeting) => renderMeetingCard(meeting))
+                            )}
+                        </View>
+                    </View>
+                )}
+
+                {/* List View */}
+                {viewMode === 'list' && (
+                    <>
+                        {selectedDateMeetings.filter(m => new Date(m.startTime) > new Date()).length > 0 && (
+                            <View style={styles.section}>
+                                <Text style={styles.sectionTitle}>
+                                    📅 Upcoming Meetings (
+                                    {selectedDateMeetings.filter(m => new Date(m.startTime) > new Date()).length})
+                                </Text>
+                                {selectedDateMeetings
+                                    .filter(m => new Date(m.startTime) > new Date())
+                                    .map((meeting) => renderMeetingCard(meeting))}
+                            </View>
+                        )}
+
+                        {selectedDateMeetings.filter(m => new Date(m.startTime) <= new Date()).length > 0 && (
+                            <View style={styles.section}>
+                                <Text style={styles.sectionTitle}>
+                                    📝 Past Meetings (
+                                    {selectedDateMeetings.filter(m => new Date(m.startTime) <= new Date()).length})
+                                </Text>
+                                {selectedDateMeetings
+                                    .filter(m => new Date(m.startTime) <= new Date())
+                                    .map((meeting) => renderMeetingCard(meeting))}
+                            </View>
+                        )}
+                    </>
+                )}
+
+                {meetings.length === 0 && pendingRequests.length === 0 && (
+                    <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateIcon}>📅</Text>
+                        <Text style={styles.emptyStateText}>No meetings scheduled</Text>
+                        <Text style={styles.emptyStateSubtext}>
+                            Schedule a meetup with your friends to get started!
+                        </Text>
+                    </View>
+                )}
+            </ScrollView>
+
+            {/* Review Modal */}
+            {selectedMeeting && (
+                <ReviewModal
+                    visible={showReviewModal}
+                    onClose={handleCloseReview}
+                    meetingId={selectedMeeting.meetingId}
+                    reviewerId={user!.uid}
+                    reviewerName={user!.displayName || user!.email || 'User'}
+                    revieweeId={selectedMeeting.requesterId === user!.uid
+                        ? selectedMeeting.receiverId
+                        : selectedMeeting.requesterId}
+                    revieweeName={selectedMeeting.requesterId === user!.uid
+                        ? selectedMeeting.receiverName
+                        : selectedMeeting.requesterName}
+                />
             )}
-        </ScrollView>
+        </>
     );
 }
 
@@ -304,8 +477,35 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: 'rgba(255,255,255,0.8)',
     },
+    toggleContainer: {
+        flexDirection: 'row',
+        padding: 16,
+        gap: 12,
+    },
+    toggleButton: {
+        flex: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        backgroundColor: '#fff',
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+    },
+    toggleButtonActive: {
+        backgroundColor: '#FCD34D',
+        borderColor: '#FCD34D',
+    },
+    toggleText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#6B7280',
+    },
+    toggleTextActive: {
+        color: '#1F2937',
+    },
     section: {
-        marginTop: 20,
+        marginTop: 8,
         paddingHorizontal: 16,
     },
     sectionTitle: {
@@ -313,6 +513,26 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginBottom: 12,
         color: '#333',
+    },
+    dateSection: {
+        marginTop: 20,
+    },
+    dateSectionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 12,
+    },
+    noMeetings: {
+        backgroundColor: '#fff',
+        padding: 40,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    noMeetingsText: {
+        fontSize: 14,
+        color: '#9CA3AF',
+        fontStyle: 'italic',
     },
     meetingCard: {
         backgroundColor: 'white',
@@ -395,8 +615,29 @@ const styles = StyleSheet.create({
         backgroundColor: '#ff9800',
         marginTop: 12,
     },
+    reviewButton: {
+        backgroundColor: '#FCD34D',
+        marginTop: 12,
+    },
     actionButtonText: {
         color: 'white',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    reviewButtonText: {
+        color: '#1F2937',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    reviewedBadge: {
+        backgroundColor: '#E8F5E9',
+        padding: 10,
+        borderRadius: 8,
+        marginTop: 12,
+        alignItems: 'center',
+    },
+    reviewedText: {
+        color: '#4CAF50',
         fontSize: 14,
         fontWeight: '600',
     },
