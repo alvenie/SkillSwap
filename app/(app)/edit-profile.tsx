@@ -1,20 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
     ActivityIndicator,
-    TextInput,
+    Alert,
     Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { useRouter } from 'expo-router';
 
 // predefined list of popular skills users can choose from
 const COMMON_SKILLS = [
@@ -53,7 +53,6 @@ export default function EditProfileScreen() {
     // profile form fields
     const [displayName, setDisplayName] = useState('');
     const [bio, setBio] = useState('');
-    const [location, setLocation] = useState('');
     const [skillsTeaching, setSkillsTeaching] = useState<string[]>([]);
     const [skillsLearning, setSkillsLearning] = useState<string[]>([]);
 
@@ -78,7 +77,6 @@ export default function EditProfileScreen() {
                 const data = userDoc.data();
                 setDisplayName(data.displayName || user.email || 'User');
                 setBio(data.bio || '');
-                setLocation(data.location || '');
                 setSkillsTeaching(data.skillsTeaching || []);
                 setSkillsLearning(data.skillsLearning || []);
             } else {
@@ -113,7 +111,6 @@ export default function EditProfileScreen() {
                     email: user.email,
                     displayName: displayName.trim(),
                     bio: bio.trim(),
-                    //location: location.trim(),
                     skillsTeaching,
                     skillsLearning,
                     updatedAt: new Date().toISOString(),
@@ -124,7 +121,7 @@ export default function EditProfileScreen() {
             Alert.alert('Success', 'Profile updated successfully!', [
                 {
                     text: 'OK',
-                    onPress: () => router.back(),
+                    onPress: () => router.push('/(app)/profile'),
                 },
             ]);
         } catch (error: any) {
@@ -187,7 +184,7 @@ export default function EditProfileScreen() {
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 {/* header with back button */}
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
                         <Text style={styles.backButtonText}>✕</Text>
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Edit Profile</Text>
@@ -222,18 +219,6 @@ export default function EditProfileScreen() {
                         <Text style={styles.hint}>
                             {bio.length}/200 characters
                         </Text>
-                    </View>
-
-                    {/* location field */}
-                    <View style={styles.formGroup}>
-                        <Text style={styles.label}>Location</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="City, Country"
-                            value={location}
-                            onChangeText={setLocation}
-                            placeholderTextColor="#999"
-                        />
                     </View>
 
                     {/* skills user can teach */}
@@ -442,7 +427,7 @@ const styles = StyleSheet.create({
     },
     addSkillButton: {
         fontSize: 14,
-        color: '#007AFF',
+        color: '#D97706',
         fontWeight: '600',
     },
     skillsContainer: {
@@ -491,7 +476,7 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
     },
     saveButton: {
-        backgroundColor: '#007AFF',
+        backgroundColor: '#FCD34D',
         paddingVertical: 16,
         borderRadius: 12,
         alignItems: 'center',

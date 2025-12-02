@@ -58,7 +58,7 @@ interface BaseMessage {
     senderName: string;
     timestamp: any;
     read: boolean;
-    type?: 'text' | 'meetup';
+    type?: 'text' | 'meetup' | 'payment_request';
     meetupData?: {
         accepted?: boolean;
     };
