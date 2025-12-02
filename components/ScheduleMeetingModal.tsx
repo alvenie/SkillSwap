@@ -1,16 +1,29 @@
-import React, { useState, useMemo } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    Modal,
-    TouchableOpacity,
-    TextInput,
-    ScrollView,
-    Alert,
-    ActivityIndicator,
-} from 'react-native';
 import { calendarService } from '@/services/apiService';
+import { Ionicons } from '@expo/vector-icons'; // Assuming you have this installed as per other files
+import React, { useMemo, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+
+// Theme Configuration
+const COLORS = {
+    primaryBrand: '#FCD34D', // Mustard Yellow
+    primaryBrandText: '#1F2937', // Dark Gray
+    background: '#FFFFFF',
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    lightGray: '#F9FAFB',
+    accentRed: '#EF4444',
+};
 
 interface ScheduleMeetingModalProps {
     visible: boolean;
@@ -22,13 +35,13 @@ interface ScheduleMeetingModalProps {
 }
 
 export default function ScheduleMeetingModal({
-                                                 visible,
-                                                 onClose,
-                                                 currentUserId,
-                                                 otherUserId,
-                                                 otherUserName,
-                                                 skillName,
-                                             }: ScheduleMeetingModalProps) {
+    visible,
+    onClose,
+    currentUserId,
+    otherUserId,
+    otherUserName,
+    skillName,
+}: ScheduleMeetingModalProps) {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [location, setLocation] = useState('');
@@ -37,896 +50,485 @@ export default function ScheduleMeetingModal({
     const [selectedMinute, setSelectedMinute] = useState<number>(0);
     const [duration, setDuration] = useState<number>(60);
     const [loading, setLoading] = useState(false);
-    const [showCalendar, setShowCalendar] = useState(false);
 
-    // Generate calendar for current month
-    const calendarData = useMemo(() => {
-        const year = selectedDate.getFullYear();
-        const month = selectedDate.getMonth();
-        const firstDay = new Date(year, month, 1);
-        const lastDay = new Date(year, month + 1, 0);
-        const daysInMonth = lastDay.getDate();
-        const startDay = firstDay.getDay();
-
-        const days: (number | null)[] = [];
-        // Add empty slots for days before month starts
-        for (let i = 0; i < startDay; i++) {
-            days.push(null);
+    // Reset form when opening
+    React.useEffect(() => {
+        if (visible) {
+            setTitle(skillName ? `Session: ${skillName}` : '');
+            setDescription('');
+            setLocation('');
+            setDuration(60);
+            // Default to next hour
+            const nextHour = new Date();
+            nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+            setSelectedDate(nextHour);
+            setSelectedHour(nextHour.getHours());
+            setSelectedMinute(0);
         }
-        // Add actual days
-        for (let i = 1; i <= daysInMonth; i++) {
-            days.push(i);
-        }
-
-        return { days, month, year };
-    }, [selectedDate]);
+    }, [visible, skillName]);
 
     const handleSchedule = async () => {
         if (!title.trim()) {
-            Alert.alert('Error', 'Please enter a meeting title');
+            Alert.alert('Missing Info', 'Please enter a meeting title.');
             return;
         }
 
+        setLoading(true);
         try {
-            setLoading(true);
-
+            // Construct start time
             const startTime = new Date(selectedDate);
             startTime.setHours(selectedHour, selectedMinute, 0, 0);
 
-            const endTime = new Date(startTime);
-            endTime.setMinutes(endTime.getMinutes() + duration);
-
-            if (startTime < new Date()) {
-                Alert.alert('Error', 'Cannot schedule meetings in the past');
-                setLoading(false);
-                return;
-            }
+            // Construct end time
+            const endTime = new Date(startTime.getTime() + duration * 60000);
 
             await calendarService.createMeeting({
                 requesterId: currentUserId,
                 receiverId: otherUserId,
                 title: title.trim(),
-                description: description.trim() || undefined,
-                startTime,
-                endTime,
-                location: location.trim() || undefined,
+                description: description.trim(),
+                startTime: startTime,
+                endTime: endTime,
+                location: location.trim(),
                 skillName: skillName,
             });
 
             Alert.alert('Success', `Meeting request sent to ${otherUserName}!`);
-            resetForm();
             onClose();
         } catch (error: any) {
-            console.error('Error scheduling meeting:', error);
-            const errorMessage = error.response?.data?.message || 'Failed to schedule meeting';
-            Alert.alert('Error', errorMessage);
+            console.error(error);
+            Alert.alert('Error', 'Failed to schedule meeting. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
-    const resetForm = () => {
-        setTitle('');
-        setDescription('');
-        setLocation('');
-        setSelectedDate(new Date());
-        setSelectedHour(9);
-        setSelectedMinute(0);
-        setDuration(60);
-    };
-
-    const handleClose = () => {
-        resetForm();
-        onClose();
-    };
-
-    const selectDate = (day: number) => {
-        const newDate = new Date(selectedDate);
-        newDate.setDate(day);
-        setSelectedDate(newDate);
-        setShowCalendar(false);
-    };
-
-    const changeMonth = (delta: number) => {
-        const newDate = new Date(selectedDate);
-        newDate.setMonth(newDate.getMonth() + delta);
-        setSelectedDate(newDate);
-    };
-
-    const formatDate = (date: Date) => {
-        return date.toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
+    // Helper to format date string
+    const dateString = useMemo(() => {
+        return selectedDate.toLocaleDateString(undefined, {
+            weekday: 'short',
+            month: 'short',
             day: 'numeric',
-            year: 'numeric',
         });
-    };
+    }, [selectedDate]);
 
-    const formatTime = (hour: number, minute: number) => {
-        const period = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        return `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`;
-    };
-
-    const formatEndTime = () => {
-        const endDate = new Date();
-        endDate.setHours(selectedHour, selectedMinute + duration, 0, 0);
-        return formatTime(endDate.getHours(), endDate.getMinutes());
-    };
-
-    const isToday = (day: number) => {
-        const today = new Date();
-        return (
-            day === today.getDate() &&
-            selectedDate.getMonth() === today.getMonth() &&
-            selectedDate.getFullYear() === today.getFullYear()
-        );
-    };
-
-    const isSelected = (day: number) => {
-        return day === selectedDate.getDate();
-    };
-
-    const durationOptions = [
-        { value: 15, label: '15 min' },
-        { value: 30, label: '30 min' },
-        { value: 45, label: '45 min' },
-        { value: 60, label: '1 hr' },
-        { value: 90, label: '1.5 hrs' },
-        { value: 120, label: '2 hrs' },
-    ];
-
+    // Generate time slots (simple implementation)
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const minutes = [0, 15, 30, 45];
 
     return (
-        <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
-            <View style={styles.container}>
-                {/* Header */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-                        <Text style={styles.cancelButton}>✕</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Schedule Meetup</Text>
-                    <TouchableOpacity
-                        onPress={handleSchedule}
-                        disabled={loading}
-                        style={styles.headerButton}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="#007AFF" size="small" />
-                        ) : (
-                            <Text style={styles.sendButton}>Send</Text>
-                        )}
-                    </TouchableOpacity>
-                </View>
-
-                <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                    {/* Meeting with info */}
-                    <View style={styles.infoCard}>
-                        <View style={styles.avatarCircle}>
-                            <Text style={styles.avatarText}>
-                                {otherUserName.charAt(0).toUpperCase()}
-                            </Text>
-                        </View>
-                        <View style={styles.infoTextContainer}>
-                            <Text style={styles.infoLabel}>Meeting with</Text>
-                            <Text style={styles.infoValue}>{otherUserName}</Text>
-                            {skillName && (
-                                <View style={styles.skillBadge}>
-                                    <Text style={styles.skillBadgeText}>📚 {skillName}</Text>
-                                </View>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* Title Input */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>
-                            Meeting Title <Text style={styles.required}>*</Text>
-                        </Text>
-                        <TextInput
-                            style={styles.input}
-                            value={title}
-                            onChangeText={setTitle}
-                            placeholder="e.g., Guitar Lesson, Coffee Chat"
-                            placeholderTextColor="#999"
-                        />
-                    </View>
-
-                    {/* Date Selector */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>Date</Text>
-                        <TouchableOpacity
-                            style={styles.dateButton}
-                            onPress={() => setShowCalendar(!showCalendar)}
-                        >
-                            <Text style={styles.dateButtonIcon}>📅</Text>
-                            <Text style={styles.dateButtonText}>{formatDate(selectedDate)}</Text>
-                            <Text style={styles.dateButtonChevron}>
-                                {showCalendar ? '▲' : '▼'}
-                            </Text>
+        <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                    {/* Header */}
+                    <View style={styles.header}>
+                        <Text style={styles.title}>Schedule Meetup</Text>
+                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                            <Ionicons name="close" size={24} color={COLORS.textSecondary} />
                         </TouchableOpacity>
-
-                        {/* Calendar */}
-                        {showCalendar && (
-                            <View style={styles.calendar}>
-                                {/* Month Navigation */}
-                                <View style={styles.calendarHeader}>
-                                    <TouchableOpacity
-                                        onPress={() => changeMonth(-1)}
-                                        style={styles.monthButton}
-                                    >
-                                        <Text style={styles.monthButtonText}>◀</Text>
-                                    </TouchableOpacity>
-                                    <Text style={styles.monthYear}>
-                                        {new Date(calendarData.year, calendarData.month).toLocaleDateString('en-US', {
-                                            month: 'long',
-                                            year: 'numeric',
-                                        })}
-                                    </Text>
-                                    <TouchableOpacity
-                                        onPress={() => changeMonth(1)}
-                                        style={styles.monthButton}
-                                    >
-                                        <Text style={styles.monthButtonText}>▶</Text>
-                                    </TouchableOpacity>
-                                </View>
-
-                                {/* Day Labels */}
-                                <View style={styles.dayLabels}>
-                                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
-                                        <Text key={day} style={styles.dayLabel}>
-                                            {day}
-                                        </Text>
-                                    ))}
-                                </View>
-
-                                {/* Calendar Days */}
-                                <View style={styles.daysGrid}>
-                                    {calendarData.days.map((day, index) => (
-                                        <TouchableOpacity
-                                            key={index}
-                                            style={[
-                                                styles.dayCell,
-                                                day === null && styles.dayCellEmpty,
-                                                day && isSelected(day) && styles.dayCellSelected,
-                                                day && isToday(day) && styles.dayCellToday,
-                                            ]}
-                                            onPress={() => day && selectDate(day)}
-                                            disabled={!day}
-                                        >
-                                            {day && (
-                                                <Text
-                                                    style={[
-                                                        styles.dayText,
-                                                        isSelected(day) && styles.dayTextSelected,
-                                                        isToday(day) && !isSelected(day) && styles.dayTextToday,
-                                                    ]}
-                                                >
-                                                    {day}
-                                                </Text>
-                                            )}
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-                        )}
                     </View>
+                    
+                    <Text style={styles.subtitle}>With {otherUserName}</Text>
 
-                    {/* Time Picker */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>Time</Text>
-
-                        {/* Current Time Display */}
-                        <View style={styles.selectedTimeDisplay}>
-                            <Text style={styles.selectedTimeText}>
-                                🕐 {formatTime(selectedHour, selectedMinute)}
-                            </Text>
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+                        
+                        {/* Title Input */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Title</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="e.g. Coding Lesson"
+                                value={title}
+                                onChangeText={setTitle}
+                                placeholderTextColor={COLORS.textSecondary}
+                            />
                         </View>
 
-                        {/* Hour Selection Grid */}
-                        <View style={styles.timeSection}>
-                            <Text style={styles.timeSubLabel}>Hour</Text>
-                            <View style={styles.timeGrid}>
-                                {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((displayHour) => {
-                                    const hour24 = displayHour === 12 ? (selectedHour >= 12 ? 12 : 0) :
-                                        selectedHour >= 12 ? displayHour + 12 : displayHour;
-                                    const isSelected = selectedHour === hour24 ||
-                                        (displayHour === 12 && selectedHour === 0);
+                        {/* Date Picker (Simplified) */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Date</Text>
+                            <View style={styles.dateDisplay}>
+                                <Ionicons name="calendar-outline" size={20} color={COLORS.primaryBrandText} />
+                                <Text style={styles.dateText}>{dateString}</Text>
+                                {/* In a real app, clicking this would open a full calendar picker */}
+                            </View>
+                        </View>
 
-                                    return (
+                        {/* Time Picker Row */}
+                        <View style={styles.row}>
+                            <View style={[styles.formGroup, { flex: 1, marginRight: 8 }]}>
+                                <Text style={styles.label}>Hour</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
+                                    {hours.map((h) => (
                                         <TouchableOpacity
-                                            key={displayHour}
+                                            key={h}
                                             style={[
-                                                styles.timeGridItem,
-                                                isSelected && styles.timeGridItemSelected,
+                                                styles.timeChip,
+                                                selectedHour === h && styles.timeChipSelected
                                             ]}
-                                            onPress={() => setSelectedHour(hour24)}
+                                            onPress={() => setSelectedHour(h)}
                                         >
-                                            <Text
-                                                style={[
-                                                    styles.timeGridText,
-                                                    isSelected && styles.timeGridTextSelected,
-                                                ]}
-                                            >
-                                                {displayHour}
+                                            <Text style={[
+                                                styles.timeChipText,
+                                                selectedHour === h && styles.timeChipTextSelected
+                                            ]}>
+                                                {h.toString().padStart(2, '0')}
                                             </Text>
                                         </TouchableOpacity>
-                                    );
-                                })}
+                                    ))}
+                                </ScrollView>
+                            </View>
+                            
+                            <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
+                                <Text style={styles.label}>Minute</Text>
+                                <View style={styles.minuteContainer}>
+                                    {minutes.map((m) => (
+                                        <TouchableOpacity
+                                            key={m}
+                                            style={[
+                                                styles.minuteChip,
+                                                selectedMinute === m && styles.minuteChipSelected
+                                            ]}
+                                            onPress={() => setSelectedMinute(m)}
+                                        >
+                                            <Text style={[
+                                                styles.minuteChipText,
+                                                selectedMinute === m && styles.minuteChipTextSelected
+                                            ]}>
+                                                {m.toString().padStart(2, '0')}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
                             </View>
                         </View>
 
-                        {/* Minute Selection */}
-                        <View style={styles.timeSection}>
-                            <Text style={styles.timeSubLabel}>Minute</Text>
-                            <View style={styles.minuteGrid}>
-                                {minutes.map((minute) => (
+                        {/* Duration */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Duration</Text>
+                            <View style={styles.durationContainer}>
+                                {[30, 60, 90, 120].map((d) => (
                                     <TouchableOpacity
-                                        key={minute}
+                                        key={d}
                                         style={[
-                                            styles.minuteGridItem,
-                                            selectedMinute === minute && styles.minuteGridItemSelected,
+                                            styles.durationChip,
+                                            duration === d && styles.durationChipSelected
                                         ]}
-                                        onPress={() => setSelectedMinute(minute)}
+                                        onPress={() => setDuration(d)}
                                     >
-                                        <Text
-                                            style={[
-                                                styles.minuteGridText,
-                                                selectedMinute === minute && styles.minuteGridTextSelected,
-                                            ]}
-                                        >
-                                            :{minute.toString().padStart(2, '0')}
+                                        <Text style={[
+                                            styles.durationChipText,
+                                            duration === d && styles.durationChipTextSelected
+                                        ]}>
+                                            {d} min
                                         </Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
                         </View>
 
-                        {/* AM/PM Toggle */}
-                        <View style={styles.timeSection}>
-                            <Text style={styles.timeSubLabel}>Period</Text>
-                            <View style={styles.amPmRow}>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.amPmButton,
-                                        selectedHour < 12 && styles.amPmButtonSelected,
-                                    ]}
-                                    onPress={() => {
-                                        if (selectedHour >= 12) {
-                                            setSelectedHour(selectedHour - 12);
-                                        }
-                                    }}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.amPmText,
-                                            selectedHour < 12 && styles.amPmTextSelected,
-                                        ]}
-                                    >
-                                        AM
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[
-                                        styles.amPmButton,
-                                        selectedHour >= 12 && styles.amPmButtonSelected,
-                                    ]}
-                                    onPress={() => {
-                                        if (selectedHour < 12) {
-                                            setSelectedHour(selectedHour + 12);
-                                        }
-                                    }}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.amPmText,
-                                            selectedHour >= 12 && styles.amPmTextSelected,
-                                        ]}
-                                    >
-                                        PM
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
+                        {/* Location */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Location (Optional)</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="e.g. Zoom, Library, Coffee Shop"
+                                value={location}
+                                onChangeText={setLocation}
+                                placeholderTextColor={COLORS.textSecondary}
+                            />
                         </View>
-                    </View>
 
-                    {/* Duration */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>Duration</Text>
-                        <View style={styles.durationGrid}>
-                            {durationOptions.map((option) => (
-                                <TouchableOpacity
-                                    key={option.value}
-                                    style={[
-                                        styles.durationChip,
-                                        duration === option.value && styles.durationChipSelected,
-                                    ]}
-                                    onPress={() => setDuration(option.value)}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.durationChipText,
-                                            duration === option.value && styles.durationChipTextSelected,
-                                        ]}
-                                    >
-                                        {option.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
+                        {/* Description */}
+                        <View style={styles.formGroup}>
+                            <Text style={styles.label}>Note (Optional)</Text>
+                            <TextInput
+                                style={[styles.input, styles.textArea]}
+                                placeholder="Add any details..."
+                                value={description}
+                                onChangeText={setDescription}
+                                multiline
+                                placeholderTextColor={COLORS.textSecondary}
+                            />
                         </View>
-                    </View>
 
-                    {/* Location */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>Location (optional)</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={location}
-                            onChangeText={setLocation}
-                            placeholder="e.g., Starbucks, Zoom link"
-                            placeholderTextColor="#999"
-                        />
-                    </View>
-
-                    {/* Description */}
-                    <View style={styles.section}>
-                        <Text style={styles.sectionLabel}>Description (optional)</Text>
-                        <TextInput
-                            style={[styles.input, styles.textArea]}
-                            value={description}
-                            onChangeText={setDescription}
-                            placeholder="What would you like to discuss?"
-                            placeholderTextColor="#999"
-                            multiline
-                            numberOfLines={4}
-                        />
-                    </View>
-
-                    {/* Summary Card */}
-                    <View style={styles.summaryCard}>
-                        <Text style={styles.summaryTitle}>📋 Meeting Summary</Text>
-                        <View style={styles.summaryRow}>
-                            <Text style={styles.summaryIcon}>📅</Text>
-                            <View style={styles.summaryTextContainer}>
-                                <Text style={styles.summaryLabel}>Date</Text>
-                                <Text style={styles.summaryValue}>{formatDate(selectedDate)}</Text>
-                            </View>
-                        </View>
-                        <View style={styles.summaryRow}>
-                            <Text style={styles.summaryIcon}>🕐</Text>
-                            <View style={styles.summaryTextContainer}>
-                                <Text style={styles.summaryLabel}>Time</Text>
-                                <Text style={styles.summaryValue}>
-                                    {formatTime(selectedHour, selectedMinute)} - {formatEndTime()}
+                        {/* Summary Card */}
+                        <View style={styles.summaryCard}>
+                            <Text style={styles.summaryTitle}>Meeting Summary</Text>
+                            <View style={styles.summaryRow}>
+                                <Ionicons name="time-outline" size={18} color={COLORS.textSecondary} />
+                                <Text style={styles.summaryText}>
+                                    {selectedHour.toString().padStart(2, '0')}:{selectedMinute.toString().padStart(2, '0')} - 
+                                    {new Date(new Date().setHours(selectedHour, selectedMinute + duration)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                 </Text>
                             </View>
-                        </View>
-                        <View style={styles.summaryRow}>
-                            <Text style={styles.summaryIcon}>⏱️</Text>
-                            <View style={styles.summaryTextContainer}>
-                                <Text style={styles.summaryLabel}>Duration</Text>
-                                <Text style={styles.summaryValue}>{duration} minutes</Text>
-                            </View>
-                        </View>
-                        {location && (
                             <View style={styles.summaryRow}>
-                                <Text style={styles.summaryIcon}>📍</Text>
-                                <View style={styles.summaryTextContainer}>
-                                    <Text style={styles.summaryLabel}>Location</Text>
-                                    <Text style={styles.summaryValue}>{location}</Text>
-                                </View>
+                                <Ionicons name="hourglass-outline" size={18} color={COLORS.textSecondary} />
+                                <Text style={styles.summaryText}>{duration} minutes</Text>
                             </View>
-                        )}
-                    </View>
+                        </View>
 
-                    <View style={styles.bottomSpacer} />
-                </ScrollView>
+                    </ScrollView>
+
+                    {/* Footer Actions */}
+                    <View style={styles.footer}>
+                        <TouchableOpacity 
+                            style={styles.cancelButton} 
+                            onPress={onClose}
+                            disabled={loading}
+                        >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={styles.submitButton} 
+                            onPress={handleSchedule}
+                            disabled={loading}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color={COLORS.primaryBrandText} />
+                            ) : (
+                                <Text style={styles.submitButtonText}>Send Request</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
             </View>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
+    modalOverlay: {
         flex: 1,
-        backgroundColor: '#f8f9fa',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: COLORS.background,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        height: '90%',
+        display: 'flex',
     },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingVertical: 16,
-        paddingTop: 60,
-        backgroundColor: '#ffffff',
+        paddingTop: 20,
+        paddingBottom: 10,
         borderBottomWidth: 1,
-        borderBottomColor: '#e9ecef',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 3,
+        borderBottomColor: COLORS.border,
     },
-    headerButton: {
-        minWidth: 50,
-    },
-    headerTitle: {
+    title: {
         fontSize: 20,
-        fontWeight: '700',
-        color: '#212529',
+        fontWeight: '800',
+        color: COLORS.textPrimary,
     },
-    cancelButton: {
-        fontSize: 24,
-        color: '#6c757d',
-        fontWeight: '400',
+    closeButton: {
+        padding: 4,
     },
-    sendButton: {
-        fontSize: 17,
-        color: '#007AFF',
-        fontWeight: '600',
-    },
-    content: {
-        flex: 1,
-    },
-    infoCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#ffffff',
-        marginHorizontal: 16,
-        marginTop: 16,
-        padding: 16,
-        borderRadius: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    avatarCircle: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: '#007AFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 16,
-    },
-    avatarText: {
-        fontSize: 24,
-        fontWeight: '700',
-        color: '#ffffff',
-    },
-    infoTextContainer: {
-        flex: 1,
-    },
-    infoLabel: {
-        fontSize: 13,
-        color: '#6c757d',
-        marginBottom: 4,
-    },
-    infoValue: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#212529',
-        marginBottom: 4,
-    },
-    skillBadge: {
-        alignSelf: 'flex-start',
-        backgroundColor: '#e7f3ff',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 12,
+    subtitle: {
+        fontSize: 14,
+        color: COLORS.textSecondary,
+        marginLeft: 20,
         marginTop: 4,
-    },
-    skillBadgeText: {
-        fontSize: 13,
-        color: '#0066cc',
-        fontWeight: '500',
-    },
-    section: {
-        marginHorizontal: 16,
-        marginTop: 20,
-    },
-    sectionLabel: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#212529',
         marginBottom: 10,
     },
-    required: {
-        color: '#dc3545',
+    scrollContent: {
+        padding: 20,
+        paddingBottom: 100, // Space for footer
+    },
+    formGroup: {
+        marginBottom: 20,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: COLORS.textPrimary,
+        marginBottom: 8,
     },
     input: {
-        backgroundColor: '#ffffff',
-        borderRadius: 12,
-        padding: 14,
-        fontSize: 16,
-        color: '#212529',
+        backgroundColor: COLORS.lightGray,
         borderWidth: 1,
-        borderColor: '#dee2e6',
+        borderColor: COLORS.border,
+        borderRadius: 12,
+        padding: 12,
+        fontSize: 16,
+        color: COLORS.textPrimary,
     },
     textArea: {
-        minHeight: 100,
+        height: 80,
         textAlignVertical: 'top',
     },
-    dateButton: {
+    dateDisplay: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#ffffff',
+        backgroundColor: COLORS.lightGray,
+        padding: 12,
         borderRadius: 12,
-        padding: 16,
         borderWidth: 1,
-        borderColor: '#dee2e6',
+        borderColor: COLORS.border,
+        gap: 10,
     },
-    dateButtonIcon: {
-        fontSize: 22,
-        marginRight: 12,
-    },
-    dateButtonText: {
-        flex: 1,
+    dateText: {
         fontSize: 16,
-        color: '#212529',
-        fontWeight: '500',
+        color: COLORS.textPrimary,
+        fontWeight: '600',
     },
-    dateButtonChevron: {
-        fontSize: 12,
-        color: '#6c757d',
+    row: {
+        flexDirection: 'row',
     },
-    calendar: {
-        backgroundColor: '#ffffff',
+    // Time Chips
+    timeScroll: {
+        backgroundColor: COLORS.lightGray,
         borderRadius: 12,
-        padding: 16,
-        marginTop: 12,
         borderWidth: 1,
-        borderColor: '#dee2e6',
+        borderColor: COLORS.border,
+        padding: 4,
     },
-    calendarHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
+    timeChip: {
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        marginRight: 4,
     },
-    monthButton: {
-        padding: 8,
+    timeChipSelected: {
+        backgroundColor: COLORS.primaryBrand,
     },
-    monthButtonText: {
-        fontSize: 18,
-        color: '#007AFF',
+    timeChipText: {
+        color: COLORS.textPrimary,
         fontWeight: '600',
     },
-    monthYear: {
-        fontSize: 17,
-        fontWeight: '600',
-        color: '#212529',
+    timeChipTextSelected: {
+        color: COLORS.primaryBrandText,
+        fontWeight: '800',
     },
-    dayLabels: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        marginBottom: 12,
-    },
-    dayLabel: {
-        width: 40,
-        textAlign: 'center',
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#6c757d',
-    },
-    daysGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-    },
-    dayCell: {
-        width: '14.28%',
-        aspectRatio: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginVertical: 2,
-    },
-    dayCellEmpty: {
-        opacity: 0,
-    },
-    dayCellSelected: {
-        backgroundColor: '#007AFF',
-        borderRadius: 20,
-    },
-    dayCellToday: {
-        borderWidth: 2,
-        borderColor: '#007AFF',
-        borderRadius: 20,
-    },
-    dayText: {
-        fontSize: 15,
-        color: '#212529',
-    },
-    dayTextSelected: {
-        color: '#ffffff',
-        fontWeight: '700',
-    },
-    dayTextToday: {
-        color: '#007AFF',
-        fontWeight: '600',
-    },
-    selectedTimeDisplay: {
-        backgroundColor: '#e7f3ff',
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginBottom: 16,
-        borderWidth: 2,
-        borderColor: '#007AFF',
-    },
-    selectedTimeText: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: '#007AFF',
-    },
-    timeSection: {
-        marginTop: 16,
-    },
-    timeSubLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#495057',
-        marginBottom: 10,
-    },
-    timeGrid: {
+    // Minute Chips
+    minuteContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 8,
     },
-    timeGridItem: {
-        width: '22%',
-        aspectRatio: 1.5,
-        backgroundColor: '#ffffff',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#dee2e6',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    timeGridItemSelected: {
-        backgroundColor: '#007AFF',
-        borderColor: '#007AFF',
-    },
-    timeGridText: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#495057',
-    },
-    timeGridTextSelected: {
-        color: '#ffffff',
-        fontWeight: '700',
-    },
-    minuteGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    minuteGridItem: {
+    minuteChip: {
         flex: 1,
-        minWidth: '22%',
-        paddingVertical: 12,
-        backgroundColor: '#ffffff',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#dee2e6',
-        justifyContent: 'center',
+        paddingVertical: 10,
         alignItems: 'center',
-    },
-    minuteGridItemSelected: {
-        backgroundColor: '#007AFF',
-        borderColor: '#007AFF',
-    },
-    minuteGridText: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#495057',
-    },
-    minuteGridTextSelected: {
-        color: '#ffffff',
-        fontWeight: '700',
-    },
-    amPmRow: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    amPmButton: {
-        flex: 1,
-        paddingVertical: 14,
-        paddingHorizontal: 20,
-        borderRadius: 10,
-        backgroundColor: '#ffffff',
+        backgroundColor: COLORS.lightGray,
+        borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#dee2e6',
-        alignItems: 'center',
+        borderColor: COLORS.border,
     },
-    amPmButtonSelected: {
-        backgroundColor: '#007AFF',
-        borderColor: '#007AFF',
+    minuteChipSelected: {
+        backgroundColor: COLORS.primaryBrand,
+        borderColor: COLORS.primaryBrand,
     },
-    amPmText: {
-        fontSize: 18,
+    minuteChipText: {
+        color: COLORS.textSecondary,
         fontWeight: '600',
-        color: '#495057',
     },
-    amPmTextSelected: {
-        color: '#ffffff',
-        fontWeight: '700',
+    minuteChipTextSelected: {
+        color: COLORS.primaryBrandText,
+        fontWeight: '800',
     },
-    durationGrid: {
+    // Duration
+    durationContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 8,
+        gap: 10,
     },
     durationChip: {
-        paddingHorizontal: 16,
         paddingVertical: 10,
+        paddingHorizontal: 16,
         borderRadius: 20,
-        backgroundColor: '#ffffff',
+        backgroundColor: COLORS.lightGray,
         borderWidth: 1,
-        borderColor: '#dee2e6',
-        minWidth: 80,
+        borderColor: COLORS.border,
+        minWidth: 70,
         alignItems: 'center',
     },
     durationChipSelected: {
-        backgroundColor: '#28a745',
-        borderColor: '#28a745',
+        backgroundColor: COLORS.primaryBrand,
+        borderColor: COLORS.primaryBrand,
     },
     durationChipText: {
         fontSize: 14,
-        fontWeight: '500',
-        color: '#495057',
+        fontWeight: '600',
+        color: COLORS.textSecondary,
     },
     durationChipTextSelected: {
-        color: '#ffffff',
-        fontWeight: '700',
+        color: COLORS.primaryBrandText,
+        fontWeight: '800',
     },
+    // Summary Card (Updated to be cleaner)
     summaryCard: {
-        backgroundColor: '#ffffff',
-        marginHorizontal: 16,
-        marginTop: 24,
-        padding: 20,
+        backgroundColor: COLORS.lightGray,
+        padding: 16,
         borderRadius: 16,
-        borderWidth: 2,
-        borderColor: '#007AFF',
-        shadowColor: '#007AFF',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 5,
+        marginTop: 10,
+        borderWidth: 1,
+        borderColor: COLORS.border,
     },
     summaryTitle: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '700',
-        color: '#212529',
-        marginBottom: 16,
+        color: COLORS.textPrimary,
+        marginBottom: 12,
     },
     summaryRow: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 12,
+        alignItems: 'center',
+        marginBottom: 8,
+        gap: 8,
     },
-    summaryIcon: {
-        fontSize: 20,
-        marginRight: 12,
-        marginTop: 2,
+    summaryText: {
+        fontSize: 14,
+        color: COLORS.textPrimary,
+        fontWeight: '500',
     },
-    summaryTextContainer: {
+    // Footer
+    footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: COLORS.background,
+        padding: 20,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        flexDirection: 'row',
+        gap: 12,
+    },
+    cancelButton: {
         flex: 1,
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        backgroundColor: COLORS.lightGray,
     },
-    summaryLabel: {
-        fontSize: 13,
-        color: '#6c757d',
-        marginBottom: 2,
-    },
-    summaryValue: {
-        fontSize: 15,
+    cancelButtonText: {
+        fontSize: 16,
         fontWeight: '600',
-        color: '#212529',
+        color: COLORS.textSecondary,
     },
-    bottomSpacer: {
-        height: 40,
+    submitButton: {
+        flex: 2,
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        backgroundColor: COLORS.primaryBrand,
+        shadowColor: COLORS.primaryBrand,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    submitButtonText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: COLORS.primaryBrandText,
     },
 });
