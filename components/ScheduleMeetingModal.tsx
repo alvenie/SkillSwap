@@ -15,7 +15,7 @@ import {
     View,
 } from 'react-native';
 
-// --- Theme Configuration ---
+// Theme Configuration
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937', // Dark Gray
