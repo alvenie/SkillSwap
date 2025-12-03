@@ -481,7 +481,7 @@ export default function SkillsScreen() {
         );
     };
 
-    // --- Main Render ---
+    // Main Render
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -495,9 +495,15 @@ export default function SkillsScreen() {
             {/* Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
-                <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
-                    <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
-                </TouchableOpacity>
+                <View style={{flexDirection: 'row', gap: 8}}>
+                    {/* Map Icon */}
+                    <TouchableOpacity onPress={() => {/* Future Functionality */}} style={styles.iconBtn}>
+                        <Ionicons name="map-outline" size={24} color={COLORS.textPrimary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.iconBtn}>
+                        <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Search Bar */}
@@ -1054,5 +1060,8 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         fontStyle: 'italic',
         marginBottom: 10,
-    }
+    },
+    iconBtn: {
+        padding: 8,
+    },
 });
