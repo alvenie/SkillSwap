@@ -6,22 +6,32 @@ import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from '../../firebaseConfig';
 
 export default function PermissionPage() {
+
+    //Track if location fetching is in progress
     const [loading, setLoading] = useState(true);
+
+    //coords stores the current geolocation
     const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+
+    //Store any error messages
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    // Ask permission on mount
+    // Ask permission on mount once, (empty dependency array)
     useEffect(() => {
         (async () => {
             try {
+                //Permission request
                 const { status } = await Location.requestForegroundPermissionsAsync();
+                //if denied, error message
                 if (status !== "granted") {
                     setErrorMsg("Permission denied.");
                     setLoading(false);
                     return;
                 }
 
+                //If permission granted, fetch geolocation
                 const location = await Location.getCurrentPositionAsync({});
+                //Save in coords
                 setCoords({
                     latitude: location.coords.latitude,
                     longitude: location.coords.longitude,
@@ -37,11 +47,13 @@ export default function PermissionPage() {
 
     // Save location to Firebase
     const saveLocation = async (coordsToSave: any) => {
+        //Retrieve current authenticated user's uid.
         const uid = auth.currentUser?.uid;
         if (!uid) return;
 
         await setDoc(doc(db, "users", uid), {
             location: coordsToSave,
+            //merge true ensures no other fields are overwritten
         }, { merge: true });
 
         router.replace("/"); // Navigate to app home after saving

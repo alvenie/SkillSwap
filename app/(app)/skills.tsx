@@ -360,20 +360,21 @@ export default function SkillsScreen() {
             let distanceText = '';
 
             if (targetUser.location) {
-            if (typeof targetUser.location === 'string') {
-            locationText = targetUser.location;
-        } else if (typeof targetUser.location === 'object') {
-            locationText = "Location Shared";
-            // If we have both locations, compute distance for display
-            if (currentUserLocation && targetUser.location.latitude) {
-            const dist = haversineDistance(
-        { latitude: currentUserLocation.latitude, longitude: currentUserLocation.longitude },
-        { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
-            );
-            distanceText = ` • ${dist.toFixed(1)} km away`;
-        }
-        }
-        }
+                if (typeof targetUser.location === 'string') {
+                    locationText = targetUser.location;
+                    //if location is coords object then use it for calculation
+                } else if (typeof targetUser.location === 'object') {
+                    locationText = "Location Shared";
+                    // If we have both locations, compute distance for display
+                    if (currentUserLocation && targetUser.location.latitude) {
+                        const dist = haversineDistance(
+                        { latitude: currentUserLocation.latitude, longitude: currentUserLocation.longitude },
+                        { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
+                            );
+                            distanceText = ` • ${dist.toFixed(1)} km away`;
+                    }
+                }
+            }
 
 
 
@@ -467,11 +468,12 @@ export default function SkillsScreen() {
     }
 
     const handleOpenMap = () => {
+        //Check if user's geolocation is available
         if (
             !currentUserLocation ||
             !currentUserLocation.latitude ||
             !currentUserLocation.longitude
-        ){
+        ){ //if unavailable return alert message.
             Alert.alert(
                 "Your location sharing is disabled!",
                 "Enable location sharing in your profile to use the map feature."
@@ -484,6 +486,7 @@ export default function SkillsScreen() {
             u => u.location && typeof u.location === 'object' && u.location.latitude && u.location.longitude
         );
 
+        //if no other users to display then return alert message instead of opening map.
         if (usersWithLocation.length === 0) {
             Alert.alert(
                 "No users available",
@@ -492,6 +495,7 @@ export default function SkillsScreen() {
             return;
         }
 
+        //If passed all checks show map.
         setShowMapModal(true);
     };
 
