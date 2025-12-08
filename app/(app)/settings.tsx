@@ -155,13 +155,15 @@ export default function SettingsScreen() {
             // Turning ON: Need permissions + coords
             setLoading(true);
             try {
+                //Ask for location permission
                 const { status } = await Location.requestForegroundPermissionsAsync();
+                //If denied shoot alert message
                 if (status !== 'granted') {
                     Alert.alert(
                         'Permission Required',
                         'Please enable location access in settings to share your location.',
                         [
-                            { text: 'Cancel', style: 'cancel', onPress: () => setLocationEnabled(false) },
+                            { text: 'Cancel', style: 'cancel', onPress: () => setLocationEnabled(false) }, //Set toggle to false
                             { text: 'Open Settings', onPress: () => Linking.openSettings() }
                         ]
                     );
@@ -169,8 +171,10 @@ export default function SettingsScreen() {
                     return;
                 }
 
+                //Get current location
                 const location = await Location.getCurrentPositionAsync({});
                 
+                //Update to firebase
                 if (user) {
                     await updateDoc(doc(db, 'users', user.uid), {
                         location: {
@@ -190,6 +194,7 @@ export default function SettingsScreen() {
             // Turning OFF: Remove data from Firestore
             if (user) {
                 try {
+                    //set location field in firebase to null
                     await updateDoc(doc(db, 'users', user.uid), {
                         location: null 
                     });
@@ -199,7 +204,6 @@ export default function SettingsScreen() {
                 }
             }
         }
-        router.replace("/(app)/settings");
     };
 
     const refreshLocation = async () => {
