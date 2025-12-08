@@ -292,6 +292,24 @@ export default function ProfileScreen() {
                     </View>
                 </View>
 
+                {/* Payments Section */}
+                <View style={styles.sectionContainer}>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Payments</Text>
+                    </View>
+                    <TouchableOpacity 
+                        style={styles.menuItem} 
+                        onPress={() => router.push('/(app)/history')}
+                    >
+                        <View style={styles.menuIconBox}>
+                            <Ionicons name="receipt-outline" size={22} color={COLORS.primaryBrandText} />
+                        </View>
+                        <Text style={styles.menuText}>Transaction History</Text>
+                        <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+                
+
                 {/* Friend Requests */}
                 {requests.length > 0 && (
                     <View style={styles.sectionContainer}>
@@ -657,5 +675,34 @@ const styles = StyleSheet.create({
     emptyText: {
         color: COLORS.textSecondary,
         fontStyle: 'italic',
+    },
+    // Menu Link (Payment History)
+    menuContainer: {
+        marginHorizontal: 20,
+        marginBottom: 20,
+    },
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.cardBackground,
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    menuIconBox: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.primaryBrand,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    menuText: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: '600',
+        color: COLORS.textPrimary,
     },
 });

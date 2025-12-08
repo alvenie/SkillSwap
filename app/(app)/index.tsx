@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 
-// --- Configuration & Data ---
+// Configuration & Data
 
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard yellow

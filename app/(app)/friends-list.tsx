@@ -1,3 +1,4 @@
+import { haversineDistance } from '@/utils/haversineDistance';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
@@ -16,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { haversineDistance } from '@/utils/haversineDistance';
 
 // Theme Configuration
 const COLORS = {
@@ -264,7 +264,7 @@ export default function FriendsListScreen() {
                 key={friend.id}
                 style={styles.friendCard}
                 onPress={() => router.push({
-                    pathname: '/user_profile', 
+                    pathname: '/(app)/user_profile', 
                     params: { userId: friend.friendId } 
                 })}
                 activeOpacity={0.7}
@@ -359,7 +359,7 @@ export default function FriendsListScreen() {
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.title}>My Friends</Text>

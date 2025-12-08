@@ -1,9 +1,10 @@
-import { Ionicons } from '@expo/vector-icons'; // Added for consistent icons
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import * as Location from 'expo-location'; // Added for location handling
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -18,7 +19,6 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// Custom hook for authentication context (to get user object and signOut function)
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
@@ -34,26 +34,14 @@ const COLORS = {
     lightGray: '#F9FAFB',
     accentGreen: '#10B981',
     accentRed: '#EF4444',
-    iconBackground: '#FEF3C7', // Light yellow for icon bg
+    iconBackground: '#FEF3C7', 
 };
 
-// Helper Function to Get Token
-/**
- * Asks for notification permissions and retrieves the Expo Push Token.
- * Also handles necessary platform-specific setup (Android channel) and
- * provides a path to open settings if permissions are permanently denied.
- */
+// Helper Function to Get Notification Token
 async function registerForPushNotificationsAsync() {
-    // Create token variable
     let token;
 
-    // Required setup for Android to ensure notifications appear
     if (Platform.OS === 'android') {
-        /** 
-         * Assigns the channel configuration to a channel of a specified name 
-         * (creating it if need be). This method lets you assign given notification channel 
-         * to a notification channel group.
-        */
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
             importance: Notifications.AndroidImportance.MAX,
@@ -62,38 +50,29 @@ async function registerForPushNotificationsAsync() {
         });
     }
 
-    // Push notifications only work on physical devices or real emulators (not web)
     if (Device.isDevice) {
-        // Get current permission status
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
-        
-        // If we don't have permission, ask for it
         if (existingStatus !== 'granted') {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
         }
-        
-        // Handle permanently denied status by offering to open system settings
         if (finalStatus !== 'granted') {
             Alert.alert(
-                'Notifications Disabled',
-                'To enable notifications, you need to allow them in your phone settings.',
+                'Permission Required',
+                'Enable notifications in your phone settings to receive updates.',
                 [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                    { text: 'Open Settings', onPress: () => Linking.openSettings() },
                 ]
             );
-            return null; // Return null token if permission is not granted
+            return;
         }
-
-        // Get the Expo Push Token using the EAS Project ID
         token = (await Notifications.getExpoPushTokenAsync({
             projectId: Constants.expoConfig?.extra?.eas?.projectId,
         })).data;
-        console.log("Push Token:", token);
     } else {
-        Alert.alert('Error', 'Must use physical device for Push Notifications');
+        Alert.alert('Emulator', 'Must use physical device for Push Notifications');
     }
 
     return token;
@@ -105,15 +84,33 @@ export default function SettingsScreen() {
     
     // State
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [locationEnabled, setLocationEnabled] = useState(false); // New Location State
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         checkNotificationStatus();
+        checkLocationStatus(); // Check location on mount
     }, []);
 
     const checkNotificationStatus = async () => {
         const { status } = await Notifications.getPermissionsAsync();
         setNotificationsEnabled(status === 'granted');
+    };
+
+    // Check if user currently has location data stored
+    const checkLocationStatus = async () => {
+        if (!user) return;
+        try {
+            const docRef = doc(db, 'users', user.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // If location field exists and is truthy, toggle is ON
+                setLocationEnabled(!!data.location); 
+            }
+        } catch (error) {
+            console.error("Error checking location status:", error);
+        }
     };
 
     const toggleNotifications = async (value: boolean) => {
@@ -128,7 +125,6 @@ export default function SettingsScreen() {
                     });
                     Alert.alert('Success', 'Notifications enabled!');
                 } else if (!token) {
-                    // User denied permission or error occurred
                     setNotificationsEnabled(false);
                 }
             } catch (error) {
@@ -138,7 +134,6 @@ export default function SettingsScreen() {
                 setLoading(false);
             }
         } else {
-            // Optional: Remove token from DB if user disables notifications
             if (user) {
                 try {
                     await updateDoc(doc(db, 'users', user.uid), {
@@ -146,6 +141,61 @@ export default function SettingsScreen() {
                     });
                 } catch (error) {
                     console.error("Error removing token:", error);
+                }
+            }
+        }
+    };
+
+    // Toggle Location Sharing Logic
+    const toggleLocation = async (value: boolean) => {
+        // Optimistic update for UI responsiveness
+        setLocationEnabled(value); 
+        
+        if (value) {
+            // Turning ON: Need permissions + coords
+            setLoading(true);
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    Alert.alert(
+                        'Permission Required',
+                        'Please enable location access in settings to share your location.',
+                        [
+                            { text: 'Cancel', style: 'cancel', onPress: () => setLocationEnabled(false) },
+                            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                        ]
+                    );
+                    setLoading(false);
+                    return;
+                }
+
+                const location = await Location.getCurrentPositionAsync({});
+                
+                if (user) {
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        location: {
+                            latitude: location.coords.latitude,
+                            longitude: location.coords.longitude
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error("Error enabling location:", error);
+                Alert.alert("Error", "Could not fetch location.");
+                setLocationEnabled(false);
+            } finally {
+                setLoading(false);
+            }
+        } else {
+            // Turning OFF: Remove data from Firestore
+            if (user) {
+                try {
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        location: null 
+                    });
+                } catch (error) {
+                    console.error("Error disabling location:", error);
+                    setLocationEnabled(true); // Revert on error
                 }
             }
         }
@@ -169,7 +219,7 @@ export default function SettingsScreen() {
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
                     <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Settings</Text>
@@ -181,6 +231,7 @@ export default function SettingsScreen() {
                 {/* Section 1: Preferences */}
                 <Text style={styles.sectionHeader}>Preferences</Text>
                 <View style={styles.section}>
+                    {/* Push Notifications */}
                     <View style={styles.row}>
                         <View style={styles.rowLeft}>
                             <View style={[styles.iconContainer, { backgroundColor: COLORS.iconBackground }]}>
@@ -188,7 +239,7 @@ export default function SettingsScreen() {
                             </View>
                             <Text style={styles.rowLabel}>Push Notifications</Text>
                         </View>
-                        {loading ? (
+                        {loading && !locationEnabled ? ( // Only show loading if specific action is pending
                             <ActivityIndicator size="small" color={COLORS.primaryBrand} />
                         ) : (
                             <Switch
@@ -199,6 +250,26 @@ export default function SettingsScreen() {
                             />
                         )}
                     </View>
+
+                    {/* Location Sharing */}
+                    <View style={[styles.row, { borderBottomWidth: 0 }]}>
+                        <View style={styles.rowLeft}>
+                            <View style={[styles.iconContainer, { backgroundColor: '#E0F2FE' }]}>
+                                <Ionicons name="location-outline" size={20} color="#0284C7" />
+                            </View>
+                            <Text style={styles.rowLabel}>Share Location</Text>
+                        </View>
+                        {loading && locationEnabled ? (
+                            <ActivityIndicator size="small" color={COLORS.primaryBrand} />
+                        ) : (
+                            <Switch
+                                value={locationEnabled}
+                                onValueChange={toggleLocation}
+                                trackColor={{ false: '#767577', true: COLORS.primaryBrand }}
+                                thumbColor={locationEnabled ? '#fff' : '#f4f3f4'}
+                            />
+                        )}
+                    </View>
                 </View>
 
                 {/* Section 2: Account */}
@@ -206,8 +277,8 @@ export default function SettingsScreen() {
                 <View style={styles.section}>
                     <TouchableOpacity style={styles.row} onPress={() => router.push('/(app)/edit-profile')}>
                         <View style={styles.rowLeft}>
-                            <View style={[styles.iconContainer, { backgroundColor: '#E0F2FE' }]}>
-                                <Ionicons name="person-outline" size={20} color="#0369A1" />
+                            <View style={[styles.iconContainer, { backgroundColor: '#F3E8FF' }]}>
+                                <Ionicons name="person-outline" size={20} color="#7E22CE" />
                             </View>
                             <Text style={styles.rowLabel}>Edit Profile</Text>
                         </View>

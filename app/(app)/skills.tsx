@@ -1,14 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MapView, { Marker, UrlTile, LatLng, Callout } from "react-native-maps";
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-<<<<<<< Updated upstream
 import { haversineDistance } from '@/utils/haversineDistance';
 import { useCallback, useEffect, useState } from 'react';
-=======
 import { useCallback, useEffect, useState, useRef } from 'react';
->>>>>>> Stashed changes
 import {
     ActivityIndicator,
     Alert,
@@ -16,84 +14,78 @@ import {
     RefreshControl,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-<<<<<<< Updated upstream
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { generateConversationId } from '../../utils/conversationUtils';
 import StarRating from '../../components/StarRating';
-=======
 import StarRating from '../../components/StarRating';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebaseConfig';
-import { generateConversationId } from '@/utils/conversationUtils';
-import { haversineDistance } from '@/utils/haversineDistance';
->>>>>>> Stashed changes
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
+import { generateConversationId } from '../../utils/conversationUtils';
 
-// Configuration
+// Configuration Constants
+// Determines how many users to show per page for pagination
 const ITEMS_PER_PAGE = 10;
 
+// Centralized color palette for consistent theming across the screen
 const COLORS = {
-    primaryBrand: '#FCD34D', // Mustard yellow
-    primaryBrandText: '#1F2937', // Dark text for contrast
+    primaryBrand: '#FCD34D', // Mustard yellow (App Brand Color)
+    primaryBrandText: '#1F2937', // Dark text for high contrast on yellow
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
-    textPrimary: '#1F2937',
-    textSecondary: '#6B7280',
+    textPrimary: '#1F2937', // Main text color (Dark Gray)
+    textSecondary: '#6B7280', // Subtitles/secondary text (Medium Gray)
     border: '#E5E7EB',
-    accentGreen: '#10B981',
-    accentBlue: '#3B82F6',
+    accentGreen: '#10B981', // For success states or 'online' indicators
     lightGray: '#F9FAFB',
+    accentOrange: '#F59E0B',
 };
 
-// User profile interface
+// Interfaces
+// Defines the shape of a User object fetched from Firestore
 interface UserWithSkills {
     id: string;
     uid: string;
     displayName: string;
     email: string;
-    skillsTeaching: string[];
-    skillsLearning: string[];
+    skillsTeaching: string[]; // Array of skills they can teach
+    skillsLearning: string[]; // Array of skills they want to learn
     bio?: string;
-    location?: any;
+    location?: any; // Location object {latitude, longitude}
     status: 'online' | 'offline' | 'in-call';
     averageRating?: number;
     reviewCount?: number;
 }
 
+// Types for the role filter toggle
 type RoleFilterType = 'All' | 'Teaches' | 'Learns';
 
-
-
-
 export default function SkillsScreen() {
-    const { user } = useAuth();
-    const router = useRouter();
-    const params = useLocalSearchParams();
+    // Hooks & Navigation
+    const { user } = useAuth(); // Access current logged-in user
+    const router = useRouter(); // For navigating to other screens
+    const params = useLocalSearchParams(); // To read URL parameters (e.g. ?skill=Guitar)
 
-    // Data State
+    // State Management
+    
+    // Data: Holds the list of all users fetched from DB
     const [users, setUsers] = useState<UserWithSkills[]>([]);
+    // Filtered Data: Holds the subset of users currently shown based on search/filters
     const [filteredUsers, setFilteredUsers] = useState<UserWithSkills[]>([]);
+    // Skills List: Used to populate the horizontal chip filter (e.g. "Guitar", "Coding")
     const [allSkills, setAllSkills] = useState<string[]>(['All']);
-
-    // UI State
+    
+    // UI State: Loading spinners and refresh status
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
-<<<<<<< Updated upstream
-
-    // Filters State
-    const [selectedSkill, setSelectedSkill] = useState<string>('All');
-    const [roleFilter, setRoleFilter] = useState<RoleFilterType>('All');
-    const [showFilterModal, setShowFilterModal] = useState(false);
-
-    // Pagination State
-=======
     
     // Filter State: Tracks current active filters
     const [selectedSkill, setSelectedSkill] = useState<string>('All'); // Selected chip
@@ -106,52 +98,80 @@ export default function SkillsScreen() {
     
     // Location State: Stores current user's coords to calculate distance
     const [myLocation, setMyLocation] = useState<{latitude: number, longitude: number} | null>(null);
-
+  
     // Maps state
     const [showMapModal, setShowMapModal] = useState(false);
-
+    
     // Pagination State: Tracks which page of results we are on
->>>>>>> Stashed changes
     const [currentPage, setCurrentPage] = useState(1);
 
-    // Friend Request State
+    // Interaction State: Tracks sent requests and existing friends to update UI buttons
     const [sentRequests, setSentRequests] = useState<string[]>([]);
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
+    
+    // Modal State for sending a connection request
     const [selectedUser, setSelectedUser] = useState<UserWithSkills | null>(null);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
     const mapRef = useRef<MapView>(null);
 
+    // Effects
+
+    // useFocusEffect runs every time this screen comes into focus (e.g. going back to it)
     useFocusEffect(
         useCallback(() => {
             loadUsers();
             loadSentRequests();
             loadExistingFriends();
+            fetchMyLocation();
         }, [])
     );
 
+    // If a skill was passed via navigation params (e.g. from Home screen), set it as selected
     useEffect(() => {
         if (params.skill && typeof params.skill === 'string') {
             setSelectedSkill(params.skill);
         }
     }, [params.skill]);
 
+    // Re-run the filtering logic whenever any filter criteria changes
     useEffect(() => {
         applyFilters();
-    }, [users, searchText, selectedSkill, roleFilter]);
+    }, [users, searchText, selectedSkill, roleFilter, radius, useRadiusFilter, myLocation]);
 
+    // Data Fetching Functions
+
+    // 1. Fetch the current logged-in user's location from their profile
+    const fetchMyLocation = async () => {
+        if (!user) return;
+        try {
+            const docSnap = await getDoc(doc(db, 'users', user.uid));
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.location && typeof data.location === 'object' && data.location.latitude) {
+                    setMyLocation(data.location);
+                }
+            }
+        } catch (e) {
+            console.log("Error fetching my location", e);
+        }
+    };
+
+    // 2. Load all users from Firestore (excluding self)
     const loadUsers = async () => {
         try {
             if (users.length === 0) setLoading(true);
             const usersRef = collection(db, 'users');
             const querySnapshot = await getDocs(usersRef);
             const usersData: UserWithSkills[] = [];
-            const skillsSet = new Set<string>();
+            const skillsSet = new Set<string>(); // Use a Set to collect unique skills
 
             querySnapshot.forEach((doc) => {
+                // Skip the current user
                 if (doc.id !== user?.uid) {
                     const data = doc.data();
+                    // Only include users who have listed skills (teaching OR learning)
                     if (
                         (data.skillsTeaching && data.skillsTeaching.length > 0) ||
                         (data.skillsLearning && data.skillsLearning.length > 0)
@@ -169,6 +189,7 @@ export default function SkillsScreen() {
                             averageRating: data.averageRating || 0,
                             reviewCount: data.reviewCount || 0,
                         });
+                        // Collect all unique skills found across users for the filter chips
                         data.skillsTeaching?.forEach((skill: string) => skillsSet.add(skill));
                         data.skillsLearning?.forEach((skill: string) => skillsSet.add(skill));
                     }
@@ -176,7 +197,7 @@ export default function SkillsScreen() {
             });
 
             setUsers(usersData);
-            setAllSkills(['All', ...Array.from(skillsSet).sort()]);
+            setAllSkills(['All', ...Array.from(skillsSet).sort()]); // Update chips
         } catch (error: any) {
             console.error('Error loading users:', error);
             Alert.alert('Error', 'Failed to load users');
@@ -186,6 +207,7 @@ export default function SkillsScreen() {
         }
     };
 
+    // 3. Load pending requests to disable "Add" buttons for them
     const loadSentRequests = async () => {
         if (!user) return;
         try {
@@ -202,6 +224,7 @@ export default function SkillsScreen() {
         }
     };
 
+    // 4. Load existing friends to show "Message" button instead of "Add"
     const loadExistingFriends = async () => {
         if (!user) return;
         try {
@@ -215,14 +238,31 @@ export default function SkillsScreen() {
         }
     };
 
-<<<<<<< Updated upstream
-=======
+    // Helper Functions
+  
+    // Standard Haversine formula to calculate distance in KM between two coordinates
+    const haversineDistance = (coords1: { latitude: number, longitude: number }, coords2: { latitude: number, longitude: number }) => {
+        const R = 6371; // Earth radius in km
+        const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+        const dLat = toRad(coords2.latitude - coords1.latitude);
+        const dLon = toRad(coords2.longitude - coords1.longitude);
+        const lat1 = toRad(coords1.latitude);
+        const lat2 = toRad(coords2.latitude);
+
+        const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        return R * c; // Distance in km
+    };
+
     // Filtering
->>>>>>> Stashed changes
     const applyFilters = () => {
         let result = users;
 
-        // Skill & Role Filter
+        // Filter 1: By Skill & Role (Teaches vs Learns)
         if (selectedSkill !== 'All') {
             result = result.filter(u => {
                 const teaches = u.skillsTeaching.includes(selectedSkill);
@@ -230,9 +270,10 @@ export default function SkillsScreen() {
 
                 if (roleFilter === 'Teaches') return teaches;
                 if (roleFilter === 'Learns') return learns;
-                return teaches || learns;
+                return teaches || learns; 
             });
         } else {
+            // If viewing 'All' skills, still respect the role filter (e.g. show only teachers)
             if (roleFilter === 'Teaches') {
                 result = result.filter(u => u.skillsTeaching.length > 0);
             } else if (roleFilter === 'Learns') {
@@ -240,7 +281,7 @@ export default function SkillsScreen() {
             }
         }
 
-        // Search Text
+        // Filter 2: Text Search (Name, Email, Bio, Skills)
         if (searchText.trim()) {
             const lowerSearch = searchText.toLowerCase();
             result = result.filter(u =>
@@ -252,8 +293,6 @@ export default function SkillsScreen() {
             );
         }
 
-<<<<<<< Updated upstream
-=======
         // Filter 3: Radius / Location
         // Only runs if the toggle is ON, and we know our own location
         if (useRadiusFilter && myLocation) {
@@ -270,13 +309,12 @@ export default function SkillsScreen() {
                 return dist <= radius;
             });
         }
-
->>>>>>> Stashed changes
+      
         setFilteredUsers(result);
-        setCurrentPage(1);
+        setCurrentPage(1); // Reset pagination when filters change
     };
 
-    // Pagination Logic
+    // Pagination Calculation
     const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
     const paginatedUsers = filteredUsers.slice(
         (currentPage - 1) * ITEMS_PER_PAGE,
@@ -291,13 +329,15 @@ export default function SkillsScreen() {
         if (currentPage > 1) setCurrentPage(c => c - 1);
     };
 
-    // Actions
+    // User Actions 
+
     const openRequestModal = (targetUser: UserWithSkills) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
     };
 
+    // Sends a friend request to Firestore
     const sendFriendRequest = async () => {
         if (!user || !selectedUser) return;
         try {
@@ -327,6 +367,7 @@ export default function SkillsScreen() {
         }
     };
 
+    // Navigates to chat if already friends
     const handleMessageUser = (targetUser: UserWithSkills) => {
         if (!user) return Alert.alert('Error', 'Login required');
         const conversationId = generateConversationId(user.uid, targetUser.uid);
@@ -343,37 +384,12 @@ export default function SkillsScreen() {
         loadExistingFriends();
     };
 
-    const [currentUserLocation, setCurrentUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-
-    useEffect(() => {
-        const fetchUserLocation = async () => {
-            if (!user) return;
-            try {
-                const docSnap = await getDoc(doc(db, "users", user.uid));
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    if (data.location) {
-                        setCurrentUserLocation({
-                            latitude: data.location.latitude,
-                            longitude: data.location.longitude,
-                        });
-                    }
-                }
-            } catch (err) {
-                console.error("Error fetching current user location:", err);
-            }
-        };
-
-        fetchUserLocation();
-    }, [user]);
-
-    // Render Items
+    // Rendering a Single User Card
     const renderUserCard = (targetUser: UserWithSkills) => {
         const isFriend = existingFriends.includes(targetUser.uid);
         const requestSent = sentRequests.includes(targetUser.uid);
         const isOnline = targetUser.status === 'online';
 
-<<<<<<< Updated upstream
         // Safe Location Logic
         let locationText = "Location unavailable";
         if (targetUser.location && currentUserLocation) {
@@ -385,7 +401,6 @@ export default function SkillsScreen() {
                 locationText = `${distance.toFixed(1)} km away`;
             } catch (err) {
                 locationText = "Location unavailable";
-=======
         // Logic to safely display location string and distance
         let locationText = null;
         let distanceText = '';
@@ -401,18 +416,16 @@ export default function SkillsScreen() {
                         { latitude: myLocation.latitude, longitude: myLocation.longitude },
                         { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
                     );
+                  
                     distanceText = ` • ${dist.toFixed(1)} km away`;
                 }
->>>>>>> Stashed changes
             }
         }
-
-
 
         return (
             <View key={targetUser.uid} style={styles.card}>
                 <View style={styles.cardHeader}>
-                    {/* Avatar */}
+                    {/* Avatar Section */}
                     <View style={styles.avatarContainer}>
                         <View style={styles.avatar}>
                             <Text style={styles.avatarText}>
@@ -422,24 +435,27 @@ export default function SkillsScreen() {
                         {isOnline && <View style={styles.onlineBadge} />}
                     </View>
 
-                    {/* Info */}
+                    {/* User Info Section */}
                     <View style={styles.cardInfo}>
                         <Text style={styles.userName} numberOfLines={1}>
                             {targetUser.displayName}
                         </Text>
-
-                        {locationText && (
-                            <Text style={styles.location} numberOfLines={1}>📍 {locationText}</Text>
+                        
+                        {/* Star Rating Component */}
+                        <View style={{ marginBottom: 4 }}>
+                            <StarRating 
+                                rating={targetUser.averageRating || 0} 
+                                reviewCount={targetUser.reviewCount || 0}
+                                size="small"
+                            />
+                        </View>
+                        
+                        {/* Location & Distance */}
+                        {(locationText || distanceText) && (
+                            <Text style={styles.location} numberOfLines={1}>📍 {locationText}{distanceText}</Text>
                         )}
-
-                        {/* Star Rating */}
-                        <StarRating
-                            rating={targetUser.averageRating || 0}
-                            reviewCount={targetUser.reviewCount || 0}
-                            size="small"
-                            showCount={true}
-                        />
-
+                        
+                        {/* Bio */}
                         {targetUser.bio && (
                             <Text style={styles.bio} numberOfLines={1}>
                                 {targetUser.bio}
@@ -447,7 +463,7 @@ export default function SkillsScreen() {
                         )}
                     </View>
 
-                    {/* Action Button */}
+                    {/* Action Button Section (Add / Pending / Message) */}
                     <View style={styles.cardAction}>
                         {isFriend ? (
                             <TouchableOpacity style={styles.iconButton} onPress={() => handleMessageUser(targetUser)}>
@@ -465,7 +481,7 @@ export default function SkillsScreen() {
                     </View>
                 </View>
 
-                {/* Skills Row */}
+                {/* Skills Display Row */}
                 <View style={styles.skillsRow}>
                     {(roleFilter === 'All' || roleFilter === 'Teaches') && targetUser.skillsTeaching.length > 0 && (
                         <View style={styles.skillGroup}>
@@ -488,6 +504,7 @@ export default function SkillsScreen() {
         );
     };
 
+    // Main Render
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -513,24 +530,18 @@ export default function SkillsScreen() {
             {/* Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
-<<<<<<< Updated upstream
                 <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
                     <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
                 </TouchableOpacity>
-=======
-                <View style={{flexDirection: 'row', gap: 8}}>
-                    {/* Map Icon */}
-                    <TouchableOpacity onPress={handleOpenMap} style={styles.iconBtn}>
                         <Ionicons name="map-outline" size={24} color={COLORS.textPrimary} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.iconBtn}>
                         <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
                     </TouchableOpacity>
                 </View>
->>>>>>> Stashed changes
             </View>
 
-            {/* Search */}
+            {/* Search Bar */}
             <View style={styles.searchSection}>
                 <View style={styles.searchBox}>
                     <Ionicons name="search" size={18} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
@@ -544,7 +555,7 @@ export default function SkillsScreen() {
                 </View>
             </View>
 
-            {/* Skill Chips (Categories) */}
+            {/* Horizontal Skill Chips */}
             <View style={styles.chipsContainer}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsContent}>
                     {allSkills.map((skill) => (
@@ -567,6 +578,7 @@ export default function SkillsScreen() {
                 </ScrollView>
             </View>
 
+            {/* User List */}
             <ScrollView
                 style={styles.listContainer}
                 contentContainerStyle={styles.listContent}
@@ -580,19 +592,19 @@ export default function SkillsScreen() {
                     paginatedUsers.map(renderUserCard)
                 )}
 
-                {/* Pagination */}
+                {/* Pagination Controls */}
                 {filteredUsers.length > 0 && (
                     <View style={styles.paginationContainer}>
-                        <TouchableOpacity
-                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]}
+                        <TouchableOpacity 
+                            style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]} 
                             onPress={prevPage}
                             disabled={currentPage === 1}
                         >
                             <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#ccc' : COLORS.textPrimary} />
                         </TouchableOpacity>
                         <Text style={styles.pageText}>Page {currentPage} of {totalPages}</Text>
-                        <TouchableOpacity
-                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]}
+                        <TouchableOpacity 
+                            style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]} 
                             onPress={nextPage}
                             disabled={currentPage === totalPages}
                         >
@@ -600,7 +612,7 @@ export default function SkillsScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
-
+                
                 <View style={{ height: 40 }} />
             </ScrollView>
 
@@ -614,8 +626,9 @@ export default function SkillsScreen() {
                                 <Ionicons name="close" size={24} color={COLORS.textSecondary} />
                             </TouchableOpacity>
                         </View>
-
-                        <Text style={styles.filterLabel}>Show users who:</Text>
+                        
+                        {/* 1. Role Filter Options */}
+                        <Text style={styles.filterLabel}>Role</Text>
                         <View style={styles.roleOptionsContainer}>
                             {(['All', 'Teaches', 'Learns'] as RoleFilterType[]).map((role) => (
                                 <TouchableOpacity
@@ -631,11 +644,48 @@ export default function SkillsScreen() {
                             ))}
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.applyFilterButton}
+                        {/* 2. Radius Filter Switch */}
+                        <View style={styles.switchRow}>
+                            <Text style={styles.filterLabel}>Filter by Distance</Text>
+                            <Switch 
+                                value={useRadiusFilter}
+                                onValueChange={setUseRadiusFilter}
+                                trackColor={{ false: '#767577', true: COLORS.primaryBrand }}
+                                thumbColor={useRadiusFilter ? '#fff' : '#f4f3f4'}
+                            />
+                        </View>
+
+                        {/* 3. Slider (Conditional Render) */}
+                        {useRadiusFilter ? (
+                            <View style={styles.sliderContainer}>
+                                <Text style={styles.sliderValueText}>
+                                    Within {Math.round(radius)} km
+                                </Text>
+                                <Slider
+                                    style={{width: '100%', height: 40}}
+                                    minimumValue={1}
+                                    maximumValue={10} // Max 10km limit
+                                    step={1}
+                                    value={radius}
+                                    onValueChange={setRadius}
+                                    minimumTrackTintColor={COLORS.primaryBrand}
+                                    maximumTrackTintColor="#E5E7EB"
+                                    thumbTintColor={COLORS.primaryBrand}
+                                />
+                                <View style={styles.sliderLabels}>
+                                    <Text style={styles.sliderLabelText}>1 km</Text>
+                                    <Text style={styles.sliderLabelText}>10 km</Text>
+                                </View>
+                            </View>
+                        ) : (
+                            <Text style={styles.infoText}>Showing users from all locations.</Text>
+                        )}
+                        
+                        <TouchableOpacity 
+                            style={styles.applyFilterButton} 
                             onPress={() => setShowFilterModal(false)}
                         >
-                            <Text style={styles.applyFilterButtonText}>Done</Text>
+                            <Text style={styles.applyFilterButtonText}>Apply Filters</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -757,14 +807,14 @@ export default function SkillsScreen() {
                             multiline
                         />
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                style={styles.modalBtnCancel}
+                             <TouchableOpacity 
+                                style={styles.modalBtnCancel} 
                                 onPress={() => setShowRequestModal(false)}
                             >
                                 <Text style={styles.modalBtnTextCancel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.modalBtnSend}
+                            <TouchableOpacity 
+                                style={styles.modalBtnSend} 
                                 onPress={sendFriendRequest}
                                 disabled={sending}
                             >
@@ -783,6 +833,7 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: COLORS.background,
     },
+    // Header Styles
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -799,6 +850,7 @@ const styles = StyleSheet.create({
     filterIconBtn: {
         padding: 8,
     },
+    // Search Bar Styles
     searchSection: {
         paddingHorizontal: 20,
         marginBottom: 12,
@@ -818,6 +870,7 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: COLORS.textPrimary,
     },
+    // Filter Chips Styles
     chipsContainer: {
         marginBottom: 10,
     },
@@ -845,14 +898,14 @@ const styles = StyleSheet.create({
     chipTextActive: {
         color: COLORS.primaryBrandText,
     },
+    // List & Card Styles
     listContainer: {
         flex: 1,
-        backgroundColor: '#FAFAFA',
+        backgroundColor: '#FAFAFA', 
     },
     listContent: {
         padding: 20,
     },
-    // CARD STYLES
     card: {
         backgroundColor: COLORS.cardBackground,
         borderRadius: 12,
@@ -868,7 +921,7 @@ const styles = StyleSheet.create({
     },
     cardHeader: {
         flexDirection: 'row',
-        alignItems: 'flex-start', // Align to top
+        alignItems: 'flex-start',
         marginBottom: 8,
     },
     avatarContainer: {
@@ -919,12 +972,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: COLORS.textSecondary,
         fontStyle: 'italic',
-        marginTop: 4,
     },
     cardAction: {
         marginLeft: 8,
         justifyContent: 'center',
-        height: 46, // Align vertically with avatar
+        height: 46,
     },
     addButton: {
         width: 32,
@@ -970,6 +1022,7 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: COLORS.textPrimary,
     },
+    // Pagination Styles
     paginationContainer: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -1000,7 +1053,7 @@ const styles = StyleSheet.create({
     emptyText: {
         color: COLORS.textSecondary,
     },
-    // Modal & Filter Modal Styles
+    // General Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1016,7 +1069,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderRadius: 16,
         padding: 20,
-        maxHeight: '50%',
+        paddingBottom: 30,
+        maxHeight: '60%', 
     },
     modalHeader: {
         flexDirection: 'row',
@@ -1062,12 +1116,13 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.primaryBrandText,
     },
-    // Filter Modal Specifics
+    // Filter Specific Styles
     filterLabel: {
         fontSize: 14,
         fontWeight: '600',
         color: COLORS.textSecondary,
         marginBottom: 12,
+        marginTop: 8,
     },
     roleOptionsContainer: {
         gap: 10,
@@ -1100,14 +1155,13 @@ const styles = StyleSheet.create({
         padding: 14,
         borderRadius: 10,
         alignItems: 'center',
+        marginTop: 10,
     },
     applyFilterButtonText: {
         fontWeight: '700',
         color: COLORS.primaryBrandText,
         fontSize: 16,
     },
-<<<<<<< Updated upstream
-=======
     switchRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -1169,6 +1223,4 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: COLORS.textSecondary,
     },
-
->>>>>>> Stashed changes
 });
