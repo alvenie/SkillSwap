@@ -5,7 +5,6 @@ import MapView, { Marker, UrlTile, LatLng, Callout } from "react-native-maps";
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { haversineDistance } from '@/utils/haversineDistance';
 import { useCallback, useEffect, useState, useRef } from 'react';
-
 import {
     ActivityIndicator,
     Alert,
@@ -16,14 +15,15 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
+    Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 import StarRating from '../../components/StarRating';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/firebaseConfig';
 import { generateConversationId } from '@/utils/conversationUtils';
+import Slider from '@react-native-community/slider';
 
 // Configuration
 const ITEMS_PER_PAGE = 10;
@@ -119,7 +119,7 @@ export default function SkillsScreen() {
 
     useEffect(() => {
         applyFilters();
-    }, [users, searchText, selectedSkill, roleFilter]);
+    }, [users, searchText, selectedSkill, roleFilter, useRadiusFilter, radius, currentUserLocation]);
 
     const loadUsers = async () => {
         try {
@@ -318,6 +318,14 @@ export default function SkillsScreen() {
             loadExistingFriends();
         };
 
+    const clearFilters = () => {
+        setSelectedSkill('All');
+        setRoleFilter('All');
+        setSearchText('');
+        setUseRadiusFilter(false); // Disable distance filtering
+        setRadius(10); // Reset slider to default (doesn't apply until toggle is on)
+    };
+
 
 
         useEffect(() => {
@@ -473,6 +481,19 @@ export default function SkillsScreen() {
             return;
         }
 
+        // Check if there are any users with valid location to display
+        const usersWithLocation = filteredUsers.filter(
+            u => u.location && typeof u.location === 'object' && u.location.latitude && u.location.longitude
+        );
+
+        if (usersWithLocation.length === 0) {
+            Alert.alert(
+                "No users available",
+                "No users have shared their location yet."
+            );
+            return;
+        }
+
         setShowMapModal(true);
     };
 
@@ -570,7 +591,8 @@ export default function SkillsScreen() {
     {/* FILTER MODAL */}
     <Modal visible={showFilterModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-            <View style={styles.filterModalContent}>
+            <ScrollView style={styles.filterModalContent}
+                  contentContainerStyle={{ paddingBottom: 20 }}>
                 <View style={styles.modalHeader}>
                     <Text style={styles.modalTitle}>Filter Users</Text>
                     <TouchableOpacity onPress={() => setShowFilterModal(false)}>
@@ -594,13 +616,57 @@ export default function SkillsScreen() {
                     ))}
                 </View>
 
+                {/* 2. Radius Filter Switch */}
+                <View style={styles.switchRow}>
+                    <Text style={styles.filterLabel}>Filter by Distance</Text>
+                    <Switch
+                        value={useRadiusFilter}
+                        onValueChange={setUseRadiusFilter}
+                        trackColor={{ false: '#767577', true: COLORS.primaryBrand }}
+                        thumbColor={useRadiusFilter ? '#fff' : '#f4f3f4'}
+                    />
+                </View>
+
+                {/* 3. Slider (Conditional Render) */}
+                {useRadiusFilter ? (
+                    <View style={styles.sliderContainer}>
+                        <Text style={styles.sliderValueText}>
+                            Within {Math.round(radius)} km
+                        </Text>
+                        <Slider
+                            style={{width: '100%', height: 40}}
+                            minimumValue={1}
+                            maximumValue={10} // Max 10km limit
+                            step={1}
+                            value={radius}
+                            onValueChange={setRadius}
+                            minimumTrackTintColor={COLORS.primaryBrand}
+                            maximumTrackTintColor="#E5E7EB"
+                            thumbTintColor={COLORS.primaryBrand}
+                        />
+                        <View style={styles.sliderLabels}>
+                            <Text style={styles.sliderLabelText}>1 km</Text>
+                            <Text style={styles.sliderLabelText}>10 km</Text>
+                        </View>
+                    </View>
+                ) : (
+                    <Text style={styles.infoText}>Showing users from all locations.</Text>
+                )}
+
+                <TouchableOpacity
+                    style={[styles.applyFilterButton, { backgroundColor: '#E5E7EB', marginBottom: 10 }]}
+                    onPress={clearFilters}
+                >
+                    <Text style={[styles.applyFilterButtonText, { color: COLORS.textPrimary }]}>Clear Filters</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                     style={styles.applyFilterButton}
                     onPress={() => setShowFilterModal(false)}
                 >
                     <Text style={styles.applyFilterButtonText}>Done</Text>
                 </TouchableOpacity>
-            </View>
+            </ScrollView>
         </View>
     </Modal>
 
@@ -979,7 +1045,7 @@ export default function SkillsScreen() {
             backgroundColor: 'white',
             borderRadius: 16,
             padding: 20,
-            maxHeight: '50%',
+            maxHeight: '80%',
         },
         modalHeader: {
             flexDirection: 'row',
