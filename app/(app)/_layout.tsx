@@ -11,7 +11,21 @@ export default function TabLayout() {
                 headerShown: false, // we handle headers in individual screens
             }}>
 
+<<<<<<< Updated upstream
             {/* visible tabs in the bottom navigation */}
+=======
+                    if (route.name === 'index') {
+                        iconName = focused ? 'home' : 'home-outline';
+                    } else if (route.name === 'skills') {
+                        iconName = focused ? 'flash' : 'flash-outline';
+                    } else if (route.name === 'chat-list') {
+                        iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+                    } else if (route.name === 'calendar') {
+                        iconName = focused ? 'calendar' : 'calendar-outline';
+                    } else if (route.name === 'profile') {
+                        iconName = focused ? 'person' : 'person-outline';
+                    }
+>>>>>>> Stashed changes
 
             {/* home screen - main landing page */}
             <Tabs.Screen
@@ -33,6 +47,7 @@ export default function TabLayout() {
                 }}
             />
 
+<<<<<<< Updated upstream
             <Tabs.Screen
                 name="maps"
                 options={{
@@ -42,6 +57,16 @@ export default function TabLayout() {
                 }}
             />
 
+=======
+            {/* 4. Chat List */}
+            <Tabs.Screen
+                name="chat-list"
+                options={{
+                    title: 'Chat',
+                    tabBarLabel: 'Chat',
+                }}
+            />
+>>>>>>> Stashed changes
 
             {/* calendar screen - schedule and manage meetings */}
             <Tabs.Screen
