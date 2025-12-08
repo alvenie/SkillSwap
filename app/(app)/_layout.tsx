@@ -31,8 +31,6 @@ export default function TabLayout() {
                         iconName = focused ? 'home' : 'home-outline';
                     } else if (route.name === 'skills') {
                         iconName = focused ? 'flash' : 'flash-outline';
-                    } else if (route.name === 'maps') {
-                        iconName = focused ? 'map' : 'map-outline';
                     } else if (route.name === 'chat-list') {
                         iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
                     } else if (route.name === 'calendar') {
@@ -65,15 +63,6 @@ export default function TabLayout() {
                 options={{
                     title: 'Skills',
                     tabBarLabel: 'Skills',
-                }}
-            />
-
-            {/* 3. Maps */}
-            <Tabs.Screen
-                name="maps"
-                options={{
-                    title: 'Maps',
-                    tabBarLabel: 'Maps',
                 }}
             />
 
