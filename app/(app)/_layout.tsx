@@ -27,11 +27,12 @@ export default function TabLayout() {
                 tabBarIcon: ({ focused, color, size }) => {
                     let iconName: keyof typeof Ionicons.glyphMap = 'help'; 
 
-            {/* visible tabs in the bottom navigation */}
                     if (route.name === 'index') {
                         iconName = focused ? 'home' : 'home-outline';
                     } else if (route.name === 'skills') {
                         iconName = focused ? 'flash' : 'flash-outline';
+                    } else if (route.name === 'maps') {
+                        iconName = focused ? 'map' : 'map-outline';
                     } else if (route.name === 'chat-list') {
                         iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
                     } else if (route.name === 'calendar') {
@@ -39,6 +40,7 @@ export default function TabLayout() {
                     } else if (route.name === 'profile') {
                         iconName = focused ? 'person' : 'person-outline';
                     }
+
                     // Use a View for the active indicator circle if focused
                     return (
                         <View style={[styles.iconContainer, focused && styles.activeIconContainer]}>
@@ -66,6 +68,7 @@ export default function TabLayout() {
                 }}
             />
 
+            {/* 3. Maps */}
             <Tabs.Screen
                 name="maps"
                 options={{
@@ -73,7 +76,7 @@ export default function TabLayout() {
                     tabBarLabel: 'Maps',
                 }}
             />
-        
+
             {/* 4. Chat List */}
             <Tabs.Screen
                 name="chat-list"
@@ -83,7 +86,7 @@ export default function TabLayout() {
                 }}
             />
 
-            {/* 5. Calendar */}
+            {/* 5. Calendar (NEW) */}
             <Tabs.Screen
                 name="calendar"
                 options={{

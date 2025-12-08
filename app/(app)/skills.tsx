@@ -2,11 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import MapView, { Marker, UrlTile, LatLng, Callout } from "react-native-maps";
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-import { haversineDistance } from '@/utils/haversineDistance';
 import { useCallback, useEffect, useState } from 'react';
-import { useCallback, useEffect, useState, useRef } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -21,10 +18,6 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../context/AuthContext';
-import { db } from '../../firebaseConfig';
-import { generateConversationId } from '../../utils/conversationUtils';
-import StarRating from '../../components/StarRating';
 import StarRating from '../../components/StarRating';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
@@ -98,9 +91,6 @@ export default function SkillsScreen() {
     
     // Location State: Stores current user's coords to calculate distance
     const [myLocation, setMyLocation] = useState<{latitude: number, longitude: number} | null>(null);
-  
-    // Maps state
-    const [showMapModal, setShowMapModal] = useState(false);
     
     // Pagination State: Tracks which page of results we are on
     const [currentPage, setCurrentPage] = useState(1);
@@ -114,7 +104,6 @@ export default function SkillsScreen() {
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [requestMessage, setRequestMessage] = useState('');
     const [sending, setSending] = useState(false);
-    const mapRef = useRef<MapView>(null);
 
     // Effects
 
@@ -239,7 +228,7 @@ export default function SkillsScreen() {
     };
 
     // Helper Functions
-  
+
     // Standard Haversine formula to calculate distance in KM between two coordinates
     const haversineDistance = (coords1: { latitude: number, longitude: number }, coords2: { latitude: number, longitude: number }) => {
         const R = 6371; // Earth radius in km
@@ -294,7 +283,7 @@ export default function SkillsScreen() {
         }
 
         // Filter 3: Radius / Location
-        // Only runs if the toggle is ON, and we know our own location
+        // Only runs if the toggle is ON and we know our own location
         if (useRadiusFilter && myLocation) {
             result = result.filter(u => {
                 // Exclude users with no location data
@@ -309,7 +298,7 @@ export default function SkillsScreen() {
                 return dist <= radius;
             });
         }
-      
+
         setFilteredUsers(result);
         setCurrentPage(1); // Reset pagination when filters change
     };
@@ -390,17 +379,6 @@ export default function SkillsScreen() {
         const requestSent = sentRequests.includes(targetUser.uid);
         const isOnline = targetUser.status === 'online';
 
-        // Safe Location Logic
-        let locationText = "Location unavailable";
-        if (targetUser.location && currentUserLocation) {
-            try {
-                const distance = haversineDistance(
-                    currentUserLocation,
-                    { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
-                );
-                locationText = `${distance.toFixed(1)} km away`;
-            } catch (err) {
-                locationText = "Location unavailable";
         // Logic to safely display location string and distance
         let locationText = null;
         let distanceText = '';
@@ -416,8 +394,7 @@ export default function SkillsScreen() {
                         { latitude: myLocation.latitude, longitude: myLocation.longitude },
                         { latitude: targetUser.location.latitude, longitude: targetUser.location.longitude }
                     );
-                  
-                    distanceText = ` • ${dist.toFixed(1)} km away`;
+                    distanceText = ` • ${dist.toFixed(1)} km`;
                 }
             }
         }
@@ -513,26 +490,14 @@ export default function SkillsScreen() {
         );
     }
 
-    const handleOpenMap = () => {
-        if (!myLocation || !myLocation.latitude || !myLocation.longitude) {
-            Alert.alert(
-                "Your location sharing is disabled!",
-                "Enable location sharing in your profile to use the map feature."
-            );
-            return;
-        }
-
-        setShowMapModal(true);
-    };
-
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header with Filter Icon */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Discover Skills</Text>
-                <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.filterIconBtn}>
-                    <Ionicons name="options-outline" size={24} color={COLORS.textPrimary} />
-                </TouchableOpacity>
+                <View style={{flexDirection: 'row', gap: 8}}>
+                    {/* Map Icon */}
+                    <TouchableOpacity onPress={() => {/* Future Functionality */}} style={styles.iconBtn}>
                         <Ionicons name="map-outline" size={24} color={COLORS.textPrimary} />
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => setShowFilterModal(true)} style={styles.iconBtn}>
@@ -690,104 +655,6 @@ export default function SkillsScreen() {
                     </View>
                 </View>
             </Modal>
-
-            {/* MAP MODAL */}
-            <Modal visible={showMapModal} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.mapModalContent}>
-                        {/* Header */}
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Users Map</Text>
-                            <TouchableOpacity onPress={() => setShowMapModal(false)}>
-                                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Map */}
-                        <MapView
-                            style={{ flex: 1, borderRadius: 16 }}
-                            initialRegion={{
-                                latitude: myLocation?.latitude || 37.7749,
-                                longitude: myLocation?.longitude || -122.4194,
-                                latitudeDelta: 0.1,
-                                longitudeDelta: 0.1,
-                            }}
-                            showsUserLocation
-                            ref={mapRef}
-                            onMapReady={() => {
-                                if (filteredUsers.length > 0 && myLocation) {
-                                    // Include both my location and other users
-                                    const allCoords: LatLng[] = [
-                                        { latitude: myLocation.latitude, longitude: myLocation.longitude },
-                                        ...filteredUsers
-                                            .filter(u => u.location && u.location.latitude && u.location.longitude)
-                                            .map(u => ({
-                                                latitude: u.location.latitude,
-                                                longitude: u.location.longitude,
-                                            }))
-                                    ];
-
-                                    if (allCoords.length > 0 && mapRef.current) {
-                                        mapRef.current.fitToCoordinates(allCoords, {
-                                            edgePadding: { top: 80, right: 40, bottom: 80, left: 40 },
-                                            animated: true,
-                                        });
-                                    }
-                                }
-                            }}
-                        >
-                            <UrlTile
-                                urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                maximumZ={19}
-                                tileSize={256}
-                            />
-                            {filteredUsers.map(u => u.location && (
-                                <Marker
-                                    key={u.uid}
-                                    coordinate={{
-                                        latitude: u.location.latitude,
-                                        longitude: u.location.longitude,
-                                    }}
-                                    pinColor="red"
-                                >
-                                    <Callout tooltip>
-                                        <View style={styles.calloutContainer}>
-                                            <Text style={styles.calloutName}>{u.displayName}</Text>
-
-                                            {/* Skills */}
-                                            {u.skillsTeaching.length > 0 && (
-                                                <Text style={styles.calloutSkills}>Teaches: {u.skillsTeaching.join(', ')}</Text>
-                                            )}
-                                            {u.skillsLearning.length > 0 && (
-                                                <Text style={styles.calloutSkills}>Learns: {u.skillsLearning.join(', ')}</Text>
-                                            )}
-
-                                            {/* Distance from me */}
-                                            {myLocation && u.location.latitude && u.location.longitude && (
-                                                <Text style={styles.calloutSkills}>
-                                                    {`Distance: ${haversineDistance(
-                                                        { latitude: myLocation.latitude, longitude: myLocation.longitude },
-                                                        { latitude: u.location.latitude, longitude: u.location.longitude }
-                                                    ).toFixed(1)} km away`}
-                                                </Text>
-                                            )}
-
-                                            {/* Star rating */}
-                                            <StarRating
-                                                rating={u.averageRating || 0}
-                                                reviewCount={u.reviewCount || 0}
-                                                size="small"
-                                            />
-                                        </View>
-                                    </Callout>
-                                </Marker>
-                            ))}
-                        </MapView>
-
-                    </View>
-                </View>
-            </Modal>
-
 
             {/* Request Modal */}
             <Modal visible={showRequestModal} animationType="fade" transparent>
@@ -1196,31 +1063,5 @@ const styles = StyleSheet.create({
     },
     iconBtn: {
         padding: 8,
-    },
-    mapModalContent: {
-        backgroundColor: 'white',
-        borderRadius: 16,
-        padding: 10,
-        height: '70%', // modal height
-    },
-    calloutContainer: {
-        backgroundColor: 'white',
-        padding: 8,
-        borderRadius: 8,
-        width: 200,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    calloutName: {
-        fontWeight: '700',
-        fontSize: 14,
-        marginBottom: 4,
-    },
-    calloutSkills: {
-        fontSize: 12,
-        color: COLORS.textSecondary,
     },
 });
