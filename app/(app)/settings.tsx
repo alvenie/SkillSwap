@@ -81,7 +81,7 @@ async function registerForPushNotificationsAsync() {
 export default function SettingsScreen() {
     const { user, signOut } = useAuth();
     const router = useRouter();
-    
+
     // State
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [locationEnabled, setLocationEnabled] = useState(false); // New Location State
@@ -199,6 +199,43 @@ export default function SettingsScreen() {
                 }
             }
         }
+        router.replace("/(app)/settings");
+    };
+
+    const refreshLocation = async () => {
+        if (!user) return;
+
+        setLoading(true);
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert(
+                    'Permission Required',
+                    'Please enable location access in settings to refresh your location.',
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                    ]
+                );
+                setLoading(false);
+                return;
+            }
+
+            const location = await Location.getCurrentPositionAsync({});
+            await updateDoc(doc(db, 'users', user.uid), {
+                location: {
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude
+                }
+            });
+
+            Alert.alert('Success', 'Location refreshed!');
+        } catch (error) {
+            console.error("Error refreshing location:", error);
+            Alert.alert('Error', 'Could not refresh location.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleSignOut = async () => {
@@ -270,6 +307,26 @@ export default function SettingsScreen() {
                             />
                         )}
                     </View>
+
+                    {/*conditional rendering for refresh location button*/}
+                    {locationEnabled && (
+                        <TouchableOpacity
+                            style={[styles.row, { borderBottomWidth: 0 }]}
+                            onPress={refreshLocation}
+                        >
+                            <View style={styles.rowLeft}>
+                                <View style={[styles.iconContainer, { backgroundColor: '#D1FAE5' }]}>
+                                    <Ionicons name="refresh-outline" size={20} color="#059669" />
+                                </View>
+                                <Text style={styles.rowLabel}>Refresh Location</Text>
+                            </View>
+                            {loading ? (
+                                <ActivityIndicator size="small" color={COLORS.primaryBrand} />
+                            ) : (
+                                <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+                            )}
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Section 2: Account */}

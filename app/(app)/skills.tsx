@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MapView, { Marker, UrlTile, LatLng, Callout } from "react-native-maps";
-import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { haversineDistance } from '@/utils/haversineDistance';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import {
@@ -327,28 +327,26 @@ export default function SkillsScreen() {
     };
 
 
+    //Runs whenever the user object is edited
+    useEffect(() => {
+        if (!user) return;
 
-        useEffect(() => {
-            const fetchUserLocation = async () => {
-            if (!user) return;
-            try {
-            const docSnap = await getDoc(doc(db, "users", user.uid));
-            if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data.location) {
-            setCurrentUserLocation({
-            latitude: data.location.latitude,
-            longitude: data.location.longitude,
+        // Subscribe to current user's document (realtime data synchronization)
+        //Everytime the document updates in firebase, this callback is ran in real time.
+        const unsubscribe = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+            const data = docSnap.data(); //Retrieve currents contents of the document
+            if (data?.location) { //null-conditional operator
+                setCurrentUserLocation({
+                    latitude: data.location.latitude,
+                    longitude: data.location.longitude,
+                });
+            } else {
+                setCurrentUserLocation(null);
+            }
         });
-        }
-        }
-        } catch (err) {
-            console.error("Error fetching current user location:", err);
-        }
-        };
 
-            fetchUserLocation();
-        }, [user]);
+        return () => unsubscribe(); // cleanup on unmount
+    }, [user]);
 
         // Render Items
         const renderUserCard = (targetUser: UserWithSkills) => {
