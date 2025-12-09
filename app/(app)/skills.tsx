@@ -435,7 +435,7 @@ export default function SkillsScreen() {
                 {/* Location and Distance */}
                 {locationText && (
                     <Text style={styles.location} numberOfLines={1}>
-                        📍 {locationText}{distanceText}
+                        📍 {locationText}{distanceText !== '' ? distanceText : null}
                     </Text>
                 )}
 
