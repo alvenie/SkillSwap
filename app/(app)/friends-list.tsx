@@ -81,7 +81,7 @@ export default function FriendsListScreen() {
             // Fetch each friend's profile data
             for (const docSnap of querySnapshot.docs) {
                 const friendData = docSnap.data();
-                
+
                 // Safe default in case friendName is missing in the friend record
                 let finalFriendName = friendData.friendName || 'User';
                 let finalFriendEmail = friendData.friendEmail || '';
@@ -112,7 +112,7 @@ export default function FriendsListScreen() {
                     id: docSnap.id,
                     userId: friendData.userId,
                     friendId: friendData.friendId,
-                    friendName: finalFriendName, 
+                    friendName: finalFriendName,
                     friendEmail: finalFriendEmail,
                     createdAt: friendData.createdAt,
                     status,
@@ -137,7 +137,7 @@ export default function FriendsListScreen() {
         }
     };
 
-    // Search handler for filtering friends
+    // Search handler for filtering friends - FIXED VERSION
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
@@ -146,12 +146,28 @@ export default function FriendsListScreen() {
         } else {
             // Filter friends based on name, email, or location
             const lowerText = text.toLowerCase();
-            const filtered = friends.filter(
-                (friend) =>
-                    (friend.friendName && friend.friendName.toLowerCase().includes(lowerText)) ||
-                    (friend.friendEmail && friend.friendEmail.toLowerCase().includes(lowerText)) ||
-                    (friend.location && friend.location.toLowerCase().includes(lowerText))
-            );
+            const filtered = friends.filter((friend) => {
+                // Check name
+                if (friend.friendName && friend.friendName.toLowerCase().includes(lowerText)) {
+                    return true;
+                }
+
+                // Check email
+                if (friend.friendEmail && friend.friendEmail.toLowerCase().includes(lowerText)) {
+                    return true;
+                }
+
+                // Check location - SAFE handling for both string and object types
+                if (friend.location) {
+                    // Only search if location is a string
+                    if (typeof friend.location === 'string' && friend.location.toLowerCase().includes(lowerText)) {
+                        return true;
+                    }
+                    // Skip if location is an object (coordinates) - can't search coordinates
+                }
+
+                return false;
+            });
             setFilteredFriends(filtered);
         }
     };
@@ -185,7 +201,7 @@ export default function FriendsListScreen() {
                             // Update counts
                             const userDoc = await getDoc(doc(db, 'users', user.uid));
                             const friendDoc = await getDoc(doc(db, 'users', friendId));
-                            
+
                             // Decrement my friend counts safely
                             if (userDoc.exists()) {
                                 const current = userDoc.data().friendCount || 0;
@@ -201,13 +217,13 @@ export default function FriendsListScreen() {
                             const conversationsRef = collection(db, 'conversations');
                             // Query conversations involving both users
                             const chatQuery = query(
-                                conversationsRef, 
+                                conversationsRef,
                                 where('participants', 'array-contains', user.uid)
                             );
-                            
+
                             // Fetch conversations and filter those with the friend
                             const chatSnap = await getDocs(chatQuery);
-                            
+
                             // Delete relevant conversations
                             chatSnap.forEach(async (chatDoc) => {
                                 const data = chatDoc.data();
@@ -259,7 +275,7 @@ export default function FriendsListScreen() {
                 console.error("Error fetching current user location:", err);
             }
         };
-        
+
         // Fetch user location when component mounts or user changes
         fetchUserLocation();
     }, [user]); // Only run when user changes
@@ -291,8 +307,8 @@ export default function FriendsListScreen() {
                 key={friend.id}
                 style={styles.friendCard}
                 onPress={() => router.push({ // Navigate to friend's profile
-                    pathname: '/(app)/user_profile', 
-                    params: { userId: friend.friendId } 
+                    pathname: '/(app)/user_profile',
+                    params: { userId: friend.friendId }
                 })}
                 activeOpacity={0.7}
             >
@@ -337,7 +353,7 @@ export default function FriendsListScreen() {
                         >
                             <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.accentGreen} />
                         </TouchableOpacity>
-                        
+
                         <TouchableOpacity
                             style={styles.removeButton}
                             onPress={(e) => {
