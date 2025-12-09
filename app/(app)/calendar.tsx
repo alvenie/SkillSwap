@@ -1,21 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    RefreshControl,
-    Alert,
-    ActivityIndicator,
-} from 'react-native';
-import { useAuth } from '@/context/AuthContext';
-import { calendarService } from '@/services/apiService';
-import ReviewModal from '@/components/ReviewModal';
 import CalendarView from '@/components/CalendarView';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import ReviewModal from '@/components/ReviewModal';
+import { useAuth } from '@/context/AuthContext';
 import { db } from '@/firebaseConfig';
+import { calendarService } from '@/services/apiService';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
+// Define Meeting interface
 interface Meeting {
     meetingId: string;
     requesterId: string;
@@ -33,6 +34,8 @@ interface Meeting {
 }
 
 export default function CalendarScreen() {
+
+    // State variables
     const { user } = useAuth();
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [pendingRequests, setPendingRequests] = useState<Meeting[]>([]);
@@ -48,6 +51,7 @@ export default function CalendarScreen() {
     const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
     const [reviewedMeetings, setReviewedMeetings] = useState<string[]>([]);
 
+    // Load meetings on component mount and when user changes
     useEffect(() => {
         if (user) {
             loadMeetings();
@@ -55,16 +59,20 @@ export default function CalendarScreen() {
         }
     }, [user]);
 
+    // Function to load meetings and pending requests
     const loadMeetings = async () => {
         if (!user) return;
 
         try {
             setLoading(true);
 
+            // load meetings from API
             const allMeetings = await calendarService.getUserMeetings(user.uid);
             setMeetings(allMeetings);
 
+            // load pending requests from API
             const pending = await calendarService.getPendingRequests(user.uid);
+            // update state with pending requests
             setPendingRequests(pending);
         } catch (error) {
             console.error('Error loading meetings:', error);
@@ -75,57 +83,72 @@ export default function CalendarScreen() {
         }
     };
 
+    // Function to load reviewed meetings
     const loadReviewedMeetings = async () => {
         if (!user) return;
 
         try {
+            // load reviews from Firestore
             const reviewsRef = collection(db, 'reviews');
             const q = query(reviewsRef, where('reviewerId', '==', user.uid));
             const snapshot = await getDocs(q);
 
+            // extract meeting IDs from reviews
             const meetingIds = snapshot.docs.map(doc => doc.data().meetingId);
+            // update state with reviewed meeting IDs
             setReviewedMeetings(meetingIds);
         } catch (error) {
             console.error('Error loading reviewed meetings:', error);
         }
     };
 
+    // Handlers for accepting meeting
     const handleAcceptMeeting = async (meetingId: string) => {
         try {
+            // accept meeting via API
             await calendarService.updateMeetingStatus(meetingId, 'accepted');
             Alert.alert('Success', 'Meeting accepted!');
             loadMeetings();
         } catch (error) {
+            // error handling
             console.error('Error accepting meeting:', error);
             Alert.alert('Error', 'Failed to accept meeting');
         }
     };
 
+    // Handlers for declining meeting
     const handleDeclineMeeting = async (meetingId: string) => {
         try {
+            // decline meeting via API
             await calendarService.updateMeetingStatus(meetingId, 'declined');
             Alert.alert('Success', 'Meeting declined');
             loadMeetings();
         } catch (error) {
+            // error handling
             console.error('Error declining meeting:', error);
             Alert.alert('Error', 'Failed to decline meeting');
         }
     };
 
+    // Handler for cancelling meeting
     const handleCancelMeeting = async (meetingId: string) => {
         if (!user) return;
 
+        // confirm cancellation
         Alert.alert('Cancel Meeting', 'Are you sure you want to cancel this meeting?', [
             { text: 'No', style: 'cancel' },
             {
                 text: 'Yes',
                 style: 'destructive',
+                // async cancellation logic
                 onPress: async () => {
                     try {
+                        // cancel meeting via API
                         await calendarService.cancelMeeting(meetingId, user.uid);
                         Alert.alert('Success', 'Meeting cancelled');
                         loadMeetings();
                     } catch (error) {
+                        // error handling
                         console.error('Error cancelling meeting:', error);
                         Alert.alert('Error', 'Failed to cancel meeting');
                     }
@@ -134,21 +157,27 @@ export default function CalendarScreen() {
         ]);
     };
 
+    // Handler for opening review modal
     const handleOpenReview = (meeting: Meeting) => {
+        // set selected meeting and show modal
         setSelectedMeeting(meeting);
         setShowReviewModal(true);
     };
 
+    // Handler for closing review modal
     const handleCloseReview = () => {
+        // hide modal and clear selected meeting
         setShowReviewModal(false);
         setSelectedMeeting(null);
         loadReviewedMeetings();
     };
 
+    // Handler for date selection in calendar
     const handleDateSelect = (date: Date) => {
         setSelectedDate(date);
     };
 
+    // Utility functions for formatting and status colors
     const formatDate = (dateString: string) => {
         const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
@@ -158,6 +187,7 @@ export default function CalendarScreen() {
         });
     };
 
+    // Utility function to format time
     const formatTime = (dateString: string) => {
         const date = new Date(dateString);
         return date.toLocaleTimeString('en-US', {
@@ -167,6 +197,7 @@ export default function CalendarScreen() {
         });
     };
 
+    // Utility function to get status color
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'accepted':
@@ -182,6 +213,7 @@ export default function CalendarScreen() {
         }
     };
 
+    // Utility function to check if two dates are the same day
     const isSameDay = (date1: Date, date2: string) => {
         const d2 = new Date(date2);
         return (
@@ -191,10 +223,12 @@ export default function CalendarScreen() {
         );
     };
 
+    // Utility function to check if meeting is completed
     const isMeetingCompleted = (endTime: string) => {
         return new Date(endTime) < new Date();
     };
 
+    // Utility function to check if meeting has been reviewed
     const hasReviewed = (meetingId: string) => {
         return reviewedMeetings.includes(meetingId);
     };
@@ -218,14 +252,16 @@ export default function CalendarScreen() {
             .map(m => m.startTime);
     };
 
+    // Render individual meeting card
     const renderMeetingCard = (meeting: Meeting, isPending: boolean = false) => {
-        const isRequester = meeting.requesterId === user?.uid;
-        const otherPersonName = isRequester ? meeting.receiverName : meeting.requesterName;
-        const otherPersonId = isRequester ? meeting.receiverId : meeting.requesterId;
-        const isCompleted = isMeetingCompleted(meeting.endTime);
-        const canReview = isCompleted && meeting.status === 'accepted' && !hasReviewed(meeting.meetingId);
+        const isRequester = meeting.requesterId === user?.uid; // check if current user is requester
+        const otherPersonName = isRequester ? meeting.receiverName : meeting.requesterName; // get other person's name
+        const otherPersonId = isRequester ? meeting.receiverId : meeting.requesterId; // get other person's ID
+        const isCompleted = isMeetingCompleted(meeting.endTime); // check if meeting is completed
+        const canReview = isCompleted && meeting.status === 'accepted' && !hasReviewed(meeting.meetingId); // check if can review
 
         return (
+            // meeting card container
             <View key={meeting.meetingId} style={styles.meetingCard}>
                 <View style={styles.meetingHeader}>
                     <View style={styles.meetingTitleRow}>
@@ -244,6 +280,7 @@ export default function CalendarScreen() {
                     )}
                 </View>
 
+                {/* meeting details */}
                 <View style={styles.meetingDetails}>
                     <Text style={styles.detailText}>
                         👤 With: <Text style={styles.detailValue}>{otherPersonName}</Text>
@@ -260,6 +297,7 @@ export default function CalendarScreen() {
                     )}
                 </View>
 
+                {/* Accept and Decline buttons for pending requests */}
                 {isPending && !isRequester && (
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
@@ -277,6 +315,7 @@ export default function CalendarScreen() {
                     </View>
                 )}
 
+                {/* Cancel Meeting and Review buttons for accepted meetings */}
                 {meeting.status === 'accepted' && !isCompleted && (
                     <TouchableOpacity
                         style={[styles.actionButton, styles.cancelButton]}
@@ -286,6 +325,7 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                 )}
 
+                {/* Review button for completed meetings */}
                 {canReview && (
                     <TouchableOpacity
                         style={[styles.actionButton, styles.reviewButton]}
@@ -295,6 +335,7 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                 )}
 
+                {/* Reviewed badge */}
                 {hasReviewed(meeting.meetingId) && (
                     <View style={styles.reviewedBadge}>
                         <Text style={styles.reviewedText}>✓ Reviewed</Text>
@@ -304,8 +345,10 @@ export default function CalendarScreen() {
         );
     };
 
+    // Get meetings for selected date
     const selectedDateMeetings = getMeetingsForDate();
 
+    // Show loading indicator while fetching data
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
@@ -446,6 +489,7 @@ export default function CalendarScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

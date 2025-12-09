@@ -4,8 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 
-// Configuration & Data
-
+// Theme Configuration
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard yellow
     background: '#FFFFFF',
@@ -35,10 +34,12 @@ const ALL_SKILLS_DATA = [
     { id: 15, icon: '🧶', label: 'Knitting', category: 'creative' },
 ];
 
+// Main Home Screen
 export default function HomeScreen() {
+    // Hooks & State
     const { user } = useAuth();
     const router = useRouter();
-    const windowWidth = Dimensions.get('window').width;
+    const windowWidth = Dimensions.get('window').width; // For responsive card sizing
 
     // State for the randomized "Today's" list
     const [todaysPicks, setTodaysPicks] = useState<any[]>([]);
@@ -60,6 +61,7 @@ export default function HomeScreen() {
     // Just a mix for trending
     const trendingSkills = [...ALL_SKILLS_DATA].reverse().slice(0, 5); 
 
+    // Handler: Navigate to Skill Search with pre-filled skill
     const handleSkillPress = (skillLabel: string) => {
         router.push({
             pathname: '/(app)/skills',
@@ -67,9 +69,9 @@ export default function HomeScreen() {
         });
     };
 
-    // --- Render Components ---
-
+    // Render Components
     const renderGridCard = (item: any) => (
+        // Grid Card for Today's Suggestions
         <TouchableOpacity 
             key={item.id} 
             style={[styles.gridCard, { width: cardWidth3Col }]}
@@ -80,7 +82,9 @@ export default function HomeScreen() {
         </TouchableOpacity>
     );
 
+    // Horizontal Card for Category Sections
     const renderHorizontalCard = (item: any) => (
+        // Horizontal Scroll Card
         <TouchableOpacity 
             key={item.id} 
             style={styles.horizontalCard}
@@ -97,6 +101,7 @@ export default function HomeScreen() {
     );
 
     return (
+        // Main Container
         <View style={styles.mainContainer}>
             <View style={styles.header}>
                 {/* Logo Section */}
@@ -154,7 +159,7 @@ export default function HomeScreen() {
                     </ScrollView>
                 </View>
 
-                {/* 4. Tech & Career (Horizontal Scroll) */}
+                {/* Tech & Career (Horizontal Scroll) */}
                 <View style={styles.sectionContainer}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>💻 Tech & Career</Text>
@@ -169,6 +174,7 @@ export default function HomeScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     mainContainer: {
         flex: 1,

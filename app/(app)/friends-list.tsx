@@ -20,7 +20,7 @@ import { db } from '../../firebaseConfig';
 
 // Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D',
+    primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
@@ -32,7 +32,7 @@ const COLORS = {
     accentRed: '#EF4444',
 };
 
-// Friend data structure
+// Friend data structure interface
 interface Friend {
     id: string;
     userId: string;
@@ -46,32 +46,39 @@ interface Friend {
     location?: any;
 }
 
-
+// Friends List Screen
 export default function FriendsListScreen() {
+    // Hooks and State
     const { user } = useAuth();
     const router = useRouter();
 
+    // State variables
     const [friends, setFriends] = useState<Friend[]>([]);
     const [filteredFriends, setFilteredFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState('');
 
+    // Load friends on mount
     useEffect(() => {
         loadFriends();
     }, []);
 
+    // Load friends from Firestore
     const loadFriends = async () => {
         if (!user) return;
 
         try {
+            // Indicate loading state
             setLoading(true);
             const friendsRef = collection(db, 'friends');
             const q = query(friendsRef, where('userId', '==', user.uid));
+            // Query friends where the current user is the owner
             const querySnapshot = await getDocs(q);
 
             const friendsList: Friend[] = [];
 
+            // Fetch each friend's profile data
             for (const docSnap of querySnapshot.docs) {
                 const friendData = docSnap.data();
                 
@@ -100,6 +107,7 @@ export default function FriendsListScreen() {
                     console.error('Error fetching profile for friend:', friendData.friendId, error);
                 }
 
+                // Construct friend object and add to list
                 friendsList.push({
                     id: docSnap.id,
                     userId: friendData.userId,
@@ -117,6 +125,7 @@ export default function FriendsListScreen() {
             // Sort by most recently added
             friendsList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+            // Update state with loaded friends
             setFriends(friendsList);
             setFilteredFriends(friendsList);
         } catch (error: any) {
@@ -128,11 +137,14 @@ export default function FriendsListScreen() {
         }
     };
 
+    // Search handler for filtering friends
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
+            // If search is empty, show all friends
             setFilteredFriends(friends);
         } else {
+            // Filter friends based on name, email, or location
             const lowerText = text.toLowerCase();
             const filtered = friends.filter(
                 (friend) =>
@@ -144,6 +156,7 @@ export default function FriendsListScreen() {
         }
     };
 
+    // Remove friend handler with confirmation
     const handleRemoveFriend = (friendId: string, friendName: string) => {
         Alert.alert(
             'Remove Friend',
@@ -152,7 +165,8 @@ export default function FriendsListScreen() {
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Remove',
-                    style: 'destructive',
+                    style: 'destructive', // Highlight as destructive action
+                    // Confirm removal and delete friend and chat history
                     onPress: async () => {
                         try {
                             if (!user) return;
@@ -172,10 +186,12 @@ export default function FriendsListScreen() {
                             const userDoc = await getDoc(doc(db, 'users', user.uid));
                             const friendDoc = await getDoc(doc(db, 'users', friendId));
                             
+                            // Decrement my friend counts safely
                             if (userDoc.exists()) {
                                 const current = userDoc.data().friendCount || 0;
                                 await updateDoc(doc(db, 'users', user.uid), { friendCount: Math.max(0, current - 1) });
                             }
+                            // Decrement my friend's friend count safely
                             if (friendDoc.exists()) {
                                 const current = friendDoc.data().friendCount || 0;
                                 await updateDoc(doc(db, 'users', friendId), { friendCount: Math.max(0, current - 1) });
@@ -183,13 +199,16 @@ export default function FriendsListScreen() {
 
                             // delete chat history
                             const conversationsRef = collection(db, 'conversations');
+                            // Query conversations involving both users
                             const chatQuery = query(
                                 conversationsRef, 
                                 where('participants', 'array-contains', user.uid)
                             );
                             
+                            // Fetch conversations and filter those with the friend
                             const chatSnap = await getDocs(chatQuery);
                             
+                            // Delete relevant conversations
                             chatSnap.forEach(async (chatDoc) => {
                                 const data = chatDoc.data();
                                 if (data.participants && data.participants.includes(friendId)) {
@@ -199,7 +218,7 @@ export default function FriendsListScreen() {
                             });
 
                             Alert.alert('Success', 'Friend and chat history removed');
-                            loadFriends();
+                            loadFriends(); // Refresh friends list
                         } catch (error) {
                             console.error(error);
                             Alert.alert('Error', 'Failed to remove friend');
@@ -210,24 +229,27 @@ export default function FriendsListScreen() {
         );
     };
 
+    // Refresh handler
     const onRefresh = () => {
         setRefreshing(true);
         loadFriends();
     };
 
-
-
+    // Current user's location state
     const [currentUserLocation, setCurrentUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
+    // Fetch current user's location on mount
     useEffect(() => {
         const fetchUserLocation = async () => {
             if (!user) return;
             try {
+                // get current user's location
                 const docSnap = await getDoc(doc(db, "users", user.uid));
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.location) {
+                    if (data.location) { // Ensure location exists before setting
                         setCurrentUserLocation({
+                            // Set latitude and longitude from user's location data
                             latitude: data.location.latitude,
                             longitude: data.location.longitude,
                         });
@@ -237,10 +259,12 @@ export default function FriendsListScreen() {
                 console.error("Error fetching current user location:", err);
             }
         };
-
+        
+        // Fetch user location when component mounts or user changes
         fetchUserLocation();
-    }, [user]);
+    }, [user]); // Only run when user changes
 
+    // Render individual friend card
     const renderFriendCard = (friend: Friend) => {
         const isOnline = friend.status === 'online';
         const displayName = friend.friendName || 'User';
@@ -249,10 +273,12 @@ export default function FriendsListScreen() {
         let locationText = "Location unavailable";
         if (friend.location && currentUserLocation) {
             try {
+                // Calculate distance using haversine formula
                 const distance = haversineDistance(
                     currentUserLocation,
                     { latitude: friend.location.latitude, longitude: friend.location.longitude }
                 );
+                // Display distance in km with one decimal place
                 locationText = `${distance.toFixed(1)} km away`;
             } catch (err) {
                 locationText = "Location unavailable";
@@ -260,15 +286,17 @@ export default function FriendsListScreen() {
         }
 
         return (
+            // Clickable friend card
             <TouchableOpacity
                 key={friend.id}
                 style={styles.friendCard}
-                onPress={() => router.push({
+                onPress={() => router.push({ // Navigate to friend's profile
                     pathname: '/(app)/user_profile', 
                     params: { userId: friend.friendId } 
                 })}
                 activeOpacity={0.7}
             >
+                {/* Friend Header Section */}
                 <View style={styles.friendHeader}>
                     <View style={styles.leftSection}>
                         {/* Avatar */}
@@ -322,7 +350,7 @@ export default function FriendsListScreen() {
                     </View>
                 </View>
 
-                {/* Skills Row - Added to match Skills Page format */}
+                {/* Skills Row */}
                 <View style={styles.skillsRow}>
                     {friend.skillsTeaching && friend.skillsTeaching.length > 0 && (
                         <View style={styles.skillGroup}>
@@ -345,6 +373,7 @@ export default function FriendsListScreen() {
         );
     };
 
+    // Show loading indicator while fetching friends
     if (loading && !refreshing) {
         return (
             <SafeAreaView style={styles.container}>
@@ -356,6 +385,7 @@ export default function FriendsListScreen() {
     }
 
     return (
+        // Main Container
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
@@ -385,6 +415,7 @@ export default function FriendsListScreen() {
                 </View>
             </View>
 
+            {/* Friends List */}
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
@@ -397,6 +428,7 @@ export default function FriendsListScreen() {
                     {filteredFriends.length} {filteredFriends.length === 1 ? 'friend' : 'friends'}
                 </Text>
 
+                {/* Empty State or Friends */}
                 {filteredFriends.length === 0 ? (
                     <View style={styles.emptyContainer}>
                         <Ionicons name="people-outline" size={64} color={COLORS.border} />
@@ -413,6 +445,7 @@ export default function FriendsListScreen() {
                         )}
                     </View>
                 ) : (
+                    // Render friend cards
                     filteredFriends.map(renderFriendCard)
                 )}
             </ScrollView>
@@ -420,6 +453,7 @@ export default function FriendsListScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

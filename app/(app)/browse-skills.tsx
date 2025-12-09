@@ -1,24 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
-    View,
-    Text,
-    FlatList,
-    TouchableOpacity,
-    StyleSheet,
-    TextInput,
     ActivityIndicator,
     Alert,
+    FlatList,
     Modal,
     ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import StarRating from '../../components/StarRating';
 import { useAuth } from '../../context/AuthContext';
-import StarRating from '../../components/StarRating';  // ADDED IMPORT
+import { db } from '../../firebaseConfig';
 
 // type definition for users with their teaching/learning skills
-// UPDATED INTERFACE - Added rating fields
 interface UserWithSkills {
     id: string;
     uid: string;
@@ -29,8 +28,8 @@ interface UserWithSkills {
     bio?: string;
     location?: string;
     status: 'online' | 'offline' | 'in-call';
-    averageRating?: number;    // ADDED
-    reviewCount?: number;      // ADDED
+    averageRating?: number;
+    reviewCount?: number;
 }
 
 // screen for browsing users by their skills and sending friend requests
@@ -78,6 +77,7 @@ export default function BrowseSkillsScreen() {
                         (data.skillsTeaching && data.skillsTeaching.length > 0) ||
                         (data.skillsLearning && data.skillsLearning.length > 0)
                     ) {
+                        // push user data into array
                         usersData.push({
                             id: doc.id,
                             uid: doc.id,
@@ -88,13 +88,14 @@ export default function BrowseSkillsScreen() {
                             bio: data.bio || '',
                             location: data.location || '',
                             status: data.status || 'offline',
-                            averageRating: data.averageRating || 0,    // ADDED
-                            reviewCount: data.reviewCount || 0,        // ADDED
+                            averageRating: data.averageRating || 0,
+                            reviewCount: data.reviewCount || 0,
                         });
                     }
                 }
             });
 
+            // update state with fetched users
             setUsers(usersData);
             setFilteredUsers(usersData);
         } catch (error) {
@@ -110,18 +111,23 @@ export default function BrowseSkillsScreen() {
         if (!user) return;
 
         try {
+            // load friend requests sent by current user
             const requestsRef = collection(db, 'friendRequests');
             const q = query(requestsRef, where('fromUserId', '==', user.uid));
             const querySnapshot = await getDocs(q);
 
+            // extract IDs of users we've sent requests to
             const sentRequestIds: string[] = [];
+            // iterate through each friend request document
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
                 if (data.status === 'pending') {
+                    // add the ID of the user to whom the request was sent
                     sentRequestIds.push(data.toUserId);
                 }
             });
 
+            // update state with sent request IDs
             setSentRequests(sentRequestIds);
         } catch (error) {
             console.error('Error loading sent requests:', error);
@@ -133,16 +139,21 @@ export default function BrowseSkillsScreen() {
         if (!user) return;
 
         try {
+            // load friends where current user is involved
             const friendsRef = collection(db, 'friends');
             const q = query(friendsRef, where('userId', '==', user.uid));
             const querySnapshot = await getDocs(q);
 
             const friendIds: string[] = [];
+
+            // extract friend IDs from documents
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
+                // add the friend's user ID to the list
                 friendIds.push(data.friendId);
             });
 
+            // update state with existing friend IDs
             setExistingFriends(friendIds);
         } catch (error) {
             console.error('Error loading friends:', error);
@@ -153,17 +164,19 @@ export default function BrowseSkillsScreen() {
     const handleSearch = (text: string) => {
         setSearchText(text);
         if (text.trim() === '') {
+            // if search is cleared, show all users
             setFilteredUsers(users);
         } else {
             const filtered = users.filter(
+                // check if search text matches any relevant user fields
                 (u) =>
-                    u.displayName.toLowerCase().includes(text.toLowerCase()) ||
-                    u.email.toLowerCase().includes(text.toLowerCase()) ||
-                    u.bio?.toLowerCase().includes(text.toLowerCase()) ||
-                    u.skillsTeaching.some((skill) =>
+                    u.displayName.toLowerCase().includes(text.toLowerCase()) || // name
+                    u.email.toLowerCase().includes(text.toLowerCase()) || // email
+                    u.bio?.toLowerCase().includes(text.toLowerCase()) || // bio
+                    u.skillsTeaching.some((skill) => // teaching skills
                         skill.toLowerCase().includes(text.toLowerCase())
                     ) ||
-                    u.skillsLearning.some((skill) =>
+                    u.skillsLearning.some((skill) => // learning skills
                         skill.toLowerCase().includes(text.toLowerCase())
                     )
             );
@@ -203,7 +216,7 @@ export default function BrowseSkillsScreen() {
             });
 
             Alert.alert(
-                'Request Sent! 🎉',
+                'Request Sent!',
                 `Friend request sent to ${selectedUser.displayName}`,
                 [{ text: 'OK' }]
             );
@@ -268,7 +281,7 @@ export default function BrowseSkillsScreen() {
                             <Text style={styles.location}>📍 {targetUser.location}</Text>
                         )}
 
-                        {/* ADDED STAR RATING */}
+                        {/* star rating */}
                         <StarRating
                             rating={targetUser.averageRating || 0}
                             reviewCount={targetUser.reviewCount || 0}

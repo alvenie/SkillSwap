@@ -24,7 +24,7 @@ import { db } from '../../firebaseConfig';
 
 // Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D',
+    primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
@@ -39,46 +39,58 @@ const COLORS = {
 
 // Helper Function to Get Notification Token
 async function registerForPushNotificationsAsync() {
+
+    // Notification token variable
     let token;
 
+    // Android specific settings
     if (Platform.OS === 'android') {
+        // Create notification channel for Android devices
         await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
-            importance: Notifications.AndroidImportance.MAX,
+            importance: Notifications.AndroidImportance.MAX, // High importance for heads-up notifications
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#FF231F7C',
         });
     }
 
+    // Request permissions and get token logic
     if (Device.isDevice) {
+        // Check existing permissions status
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
+        let finalStatus = existingStatus; // Default to existing status
+
+        // If not granted, request permissions
         if (existingStatus !== 'granted') {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
         }
+        // If still not granted, alert user
         if (finalStatus !== 'granted') {
             Alert.alert(
                 'Permission Required',
                 'Enable notifications in your phone settings to receive updates.',
                 [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Open Settings', onPress: () => Linking.openSettings() },
+                    { text: 'Open Settings', onPress: () => Linking.openSettings() }, // Open app settings
                 ]
             );
             return;
         }
+        // Get the Expo push token for the device
         token = (await Notifications.getExpoPushTokenAsync({
             projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        })).data;
+        })).data; // Extract token data
     } else {
-        Alert.alert('Emulator', 'Must use physical device for Push Notifications');
+        Alert.alert('Emulator', 'Must use physical device for Push Notifications'); // Alert if not a physical device
     }
 
     return token;
 }
 
+// Settings Screen Component
 export default function SettingsScreen() {
+    // Hooks
     const { user, signOut } = useAuth();
     const router = useRouter();
 
@@ -87,20 +99,24 @@ export default function SettingsScreen() {
     const [locationEnabled, setLocationEnabled] = useState(false); // New Location State
     const [loading, setLoading] = useState(false);
 
+    // Check current notification and location status on mount
     useEffect(() => {
         checkNotificationStatus();
-        checkLocationStatus(); // Check location on mount
+        checkLocationStatus();
     }, []);
 
+    // Check if user currently has notifications enabled
     const checkNotificationStatus = async () => {
+        // Get current permission status
         const { status } = await Notifications.getPermissionsAsync();
-        setNotificationsEnabled(status === 'granted');
+        setNotificationsEnabled(status === 'granted'); // Set state based on permission
     };
 
     // Check if user currently has location data stored
     const checkLocationStatus = async () => {
         if (!user) return;
         try {
+            // Fetch user document from Firestore
             const docRef = doc(db, 'users', user.uid);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
@@ -113,29 +129,33 @@ export default function SettingsScreen() {
         }
     };
 
+    // Toggle Push Notifications Logic
     const toggleNotifications = async (value: boolean) => {
-        setNotificationsEnabled(value);
-        if (value) {
+        setNotificationsEnabled(value); // Optimistic update for UI responsiveness
+        if (value) { // Turning ON
             setLoading(true);
             try {
+                // Request notification token
                 const token = await registerForPushNotificationsAsync();
                 if (token && user) {
+                    // Store token in Firestore
                     await updateDoc(doc(db, 'users', user.uid), {
-                        pushToken: token,
+                        pushToken: token, // Save token
                     });
                     Alert.alert('Success', 'Notifications enabled!');
                 } else if (!token) {
-                    setNotificationsEnabled(false);
+                    setNotificationsEnabled(false); // Revert toggle if no token
                 }
             } catch (error) {
                 console.error("Error enabling notifications:", error);
-                setNotificationsEnabled(false);
+                setNotificationsEnabled(false); // Revert toggle on error
             } finally {
                 setLoading(false);
             }
-        } else {
+        } else { // Turning OFF
             if (user) {
                 try {
+                    // Remove token from Firestore
                     await updateDoc(doc(db, 'users', user.uid), {
                         pushToken: null,
                     });
@@ -206,28 +226,34 @@ export default function SettingsScreen() {
         }
     };
 
+    // Refresh Location Manually
     const refreshLocation = async () => {
         if (!user) return;
 
         setLoading(true);
         try {
+            // Request location permission
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
+                // If denied, alert user
                 Alert.alert(
                     'Permission Required',
                     'Please enable location access in settings to refresh your location.',
                     [
                         { text: 'Cancel', style: 'cancel' },
-                        { text: 'Open Settings', onPress: () => Linking.openSettings() }
+                        { text: 'Open Settings', onPress: () => Linking.openSettings() } // Open app settings 
                     ]
                 );
                 setLoading(false);
                 return;
             }
 
+            // Get current location
             const location = await Location.getCurrentPositionAsync({});
+            // Update location in Firestore
             await updateDoc(doc(db, 'users', user.uid), {
                 location: {
+                    // store new coordinates
                     latitude: location.coords.latitude,
                     longitude: location.coords.longitude
                 }
@@ -242,21 +268,23 @@ export default function SettingsScreen() {
         }
     };
 
+    // Sign Out Handler
     const handleSignOut = async () => {
         Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
             { text: 'Cancel', style: 'cancel' },
             { 
                 text: 'Sign Out', 
                 style: 'destructive',
-                onPress: async () => {
+                onPress: async () => { // Confirm sign out
                     await signOut();
-                    router.replace('/(public)/login'); 
+                    router.replace('/(public)/login'); // Redirect to login screen
                 } 
             },
         ]);
     };
 
     return (
+        // Safe Area View for proper display on all devices
         <SafeAreaView style={styles.container} edges={['top']}>
             {/* Header */}
             <View style={styles.header}>
@@ -302,7 +330,7 @@ export default function SettingsScreen() {
                         </View>
                         {loading && locationEnabled ? (
                             <ActivityIndicator size="small" color={COLORS.primaryBrand} />
-                        ) : (
+                        ) : ( // if not loading, show switch
                             <Switch
                                 value={locationEnabled}
                                 onValueChange={toggleLocation}
@@ -336,6 +364,7 @@ export default function SettingsScreen() {
                 {/* Section 2: Account */}
                 <Text style={styles.sectionHeader}>Account</Text>
                 <View style={styles.section}>
+                    {/* Edit Profile */}
                     <TouchableOpacity style={styles.row} onPress={() => router.push('/(app)/edit-profile')}>
                         <View style={styles.rowLeft}>
                             <View style={[styles.iconContainer, { backgroundColor: '#F3E8FF' }]}>
@@ -346,6 +375,7 @@ export default function SettingsScreen() {
                         <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
                     </TouchableOpacity>
                     
+                    {/* Manage Friends */}
                     <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={() => router.push('/(app)/friends-list')}>
                         <View style={styles.rowLeft}>
                             <View style={[styles.iconContainer, { backgroundColor: '#ECFDF5' }]}>
@@ -360,6 +390,7 @@ export default function SettingsScreen() {
                 {/* Section 3: Actions */}
                 <Text style={styles.sectionHeader}>Actions</Text>
                 <View style={styles.section}>
+                    {/* Log Out */}
                     <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={handleSignOut}>
                         <View style={styles.rowLeft}>
                             <View style={[styles.iconContainer, { backgroundColor: '#FEF2F2' }]}>
@@ -370,13 +401,14 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* App Version */}
                 <Text style={styles.versionText}>Version 1.0.0</Text>
-
             </ScrollView>
         </SafeAreaView>
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

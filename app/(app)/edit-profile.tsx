@@ -45,6 +45,7 @@ const COMMON_SKILLS = [
 
 // screen for editing user profile information and skills
 export default function EditProfileScreen() {
+    // state variables
     const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
@@ -73,6 +74,7 @@ export default function EditProfileScreen() {
         try {
             const userDoc = await getDoc(doc(db, 'users', user.uid));
 
+            // populate form fields with existing data 
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 setDisplayName(data.displayName || user.email || 'User');
@@ -115,7 +117,7 @@ export default function EditProfileScreen() {
                     skillsLearning,
                     updatedAt: new Date().toISOString(),
                 },
-                { merge: true }
+                { merge: true } // merge with existing document
             );
 
             Alert.alert('Success', 'Profile updated successfully!', [
@@ -155,15 +157,16 @@ export default function EditProfileScreen() {
             }
         }
 
+        // close modal and reset input
         setShowSkillModal(false);
         setCustomSkill('');
     };
 
     // remove a skill from the list
     const removeSkill = (skill: string, type: 'teaching' | 'learning') => {
-        if (type === 'teaching') {
+        if (type === 'teaching') { // remove from teaching skills
             setSkillsTeaching(skillsTeaching.filter((s) => s !== skill));
-        } else {
+        } else { // remove from learning skills
             setSkillsLearning(skillsLearning.filter((s) => s !== skill));
         }
     };
@@ -180,6 +183,7 @@ export default function EditProfileScreen() {
     }
 
     return (
+        // main edit profile screen
         <SafeAreaView style={styles.container}>
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
                 {/* header with back button */}
@@ -348,6 +352,7 @@ export default function EditProfileScreen() {
     );
 }
 
+// styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

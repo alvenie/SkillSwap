@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// Configuration
+// Theme Configuration
 const COLORS = {
     primaryBrand: '#FCD34D', // Mustard yellow
     primaryBrandText: '#1F2937', 
@@ -31,6 +31,7 @@ const COLORS = {
     lightGray: '#F9FAFB',
 };
 
+// Define conversation type
 interface Conversation {
     id: string;
     participants: string[];
@@ -41,15 +42,19 @@ interface Conversation {
     unreadCount: { [key: string]: number };
 }
 
+// Main Chat List Screen
 export default function ChatListScreen() {
+    // Hooks and State
     const { user } = useAuth();
     const router = useRouter();
     
+    // State for conversations and loading
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchText, setSearchText] = useState('');
 
+    // Fetch conversations on focus (and when user changes)
     useFocusEffect(
         useCallback(() => {
             if (!user) return;
@@ -60,11 +65,13 @@ export default function ChatListScreen() {
                 where('participants', 'array-contains', user.uid)
             );
 
+            // Real-time listener for conversations
             const unsubscribe = onSnapshot(q, (snapshot) => {
+                // Load conversations from snapshot
                 const loadedChats: Conversation[] = [];
                 snapshot.forEach((doc) => {
                     const data = doc.data();
-                    loadedChats.push({ 
+                    loadedChats.push({ // pull data into Conversation type
                         id: doc.id, 
                         ...data 
                     } as Conversation);
@@ -77,6 +84,7 @@ export default function ChatListScreen() {
                     return timeB - timeA;
                 });
 
+                // Update state with loaded conversations
                 setConversations(loadedChats);
                 setFilteredConversations(loadedChats);
                 setLoading(false);
@@ -85,30 +93,34 @@ export default function ChatListScreen() {
                 setLoading(false);
             });
 
+            // Cleanup subscription on unmount
             return () => unsubscribe();
         }, [user])
     );
 
     // Filter logic for search bar
     const handleSearch = (text: string) => {
+        // Update search text state
         setSearchText(text);
         if (!text.trim()) {
+            // If search is empty, show all conversations
             setFilteredConversations(conversations);
             return;
         }
 
+        // Filter conversations based on participant names
         const lowerText = text.toLowerCase();
         const filtered = conversations.filter(chat => {
-            const otherId = chat.participants.find(id => id !== user?.uid) || '';
-            const otherName = chat.participantNames?.[otherId] || 'User';
-            return otherName.toLowerCase().includes(lowerText);
+            const otherId = chat.participants.find(id => id !== user?.uid) || ''; // Get the other participant's ID
+            const otherName = chat.participantNames?.[otherId] || 'User'; // Fallback to 'User' if name not found
+            return otherName.toLowerCase().includes(lowerText); // 
         });
-        setFilteredConversations(filtered);
+        setFilteredConversations(filtered); // Update filtered list
     };
 
     // Helper to format timestamp nicely (e.g. "10:30 AM" or "Yesterday")
     const formatTime = (isoString: string) => {
-        if (!isoString) return '';
+        if (!isoString) return ''; // An isoString refers to a date in ISO 8601 format.
         const date = new Date(isoString);
         const now = new Date();
         const isToday = date.toDateString() === now.toDateString();
@@ -122,28 +134,31 @@ export default function ChatListScreen() {
 
     // Navigation to specific chat room
     const openChat = (chat: Conversation) => {
-        const otherUserId = chat.participants.find(id => id !== user?.uid) || '';
-        const otherUserName = chat.participantNames?.[otherUserId] || 'User';
+        const otherUserId = chat.participants.find(id => id !== user?.uid) || ''; // Get the other participant's ID
+        const otherUserName = chat.participantNames?.[otherUserId] || 'User'; // Fallback to 'User' if name not found
         
+        // Navigate to chat room with params
         router.push({
-            pathname: '/(app)/chat-room',
+            pathname: '/(app)/chat-room', // Path to chat room screen
             params: {
-                conversationId: chat.id,
-                otherUserId: otherUserId,
-                otherUserName: otherUserName
+                conversationId: chat.id, // Pass conversation ID
+                otherUserId: otherUserId, // Pass other user's ID
+                otherUserName: otherUserName // Pass other user's name
             }
         });
     };
 
+    // Render each conversation item
     const renderConversationItem = ({ item }: { item: Conversation }) => {
-        const otherUserId = item.participants.find(id => id !== user?.uid) || '';
-        const otherUserName = item.participantNames?.[otherUserId] || 'User';
+        const otherUserId = item.participants.find(id => id !== user?.uid) || ''; // Get the other participant's ID
+        const otherUserName = item.participantNames?.[otherUserId] || 'User'; // Fallback to 'User' if name not found
         
         // Safety check for unread count
         const unread = (item.unreadCount && item.unreadCount[user?.uid || '']) || 0;
         const isUnread = unread > 0;
 
         return (
+            // Conversation Card
             <TouchableOpacity 
                 style={[styles.card, isUnread && styles.cardUnread]} 
                 onPress={() => openChat(item)}
@@ -183,6 +198,7 @@ export default function ChatListScreen() {
         );
     };
 
+    // Show loading indicator
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -192,6 +208,7 @@ export default function ChatListScreen() {
     }
 
     return (
+        // Main Container
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Messages</Text>
@@ -210,6 +227,7 @@ export default function ChatListScreen() {
                 </View>
             </View>
 
+            {/* Conversation List */}
             <FlatList
                 data={filteredConversations}
                 renderItem={renderConversationItem}
@@ -228,6 +246,7 @@ export default function ChatListScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

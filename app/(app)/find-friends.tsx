@@ -33,9 +33,9 @@ import StarRating from '../../components/StarRating';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
-// --- Theme Configuration ---
+// Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D',
+    primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
@@ -47,7 +47,7 @@ const COLORS = {
     accentOrange: '#F59E0B',
 };
 
-// User profile structure
+// User profile structure interface
 interface UserProfile {
     uid: string;
     email: string;
@@ -61,7 +61,9 @@ interface UserProfile {
     reviewCount?: number;
 }
 
+// Find Friends Screen
 export default function FindFriendsScreen() {
+    // Auth Context & Router
     const { user } = useAuth();
     const router = useRouter();
 
@@ -83,6 +85,7 @@ export default function FindFriendsScreen() {
     const [sentRequests, setSentRequests] = useState<string[]>([]);
     const [existingFriends, setExistingFriends] = useState<string[]>([]);
 
+    // Initial Load on Mount
     useEffect(() => {
         loadUsers(false);
         loadSentRequests();
@@ -91,6 +94,7 @@ export default function FindFriendsScreen() {
 
     // Consolidated Load Function with Pagination
     const loadUsers = async (loadMore: boolean = false) => {
+        // Prevent multiple simultaneous loads
         if (loadMore && (loadingMore || !hasMore)) return;
 
         try {
@@ -100,16 +104,20 @@ export default function FindFriendsScreen() {
                 setLoading(true);
             }
 
+            // Firestore Query Setup
             const usersRef = collection(db, 'users');
+            // Pagination Size
             const PAGE_SIZE = 10;
 
+            // Query Initialization
             let q;
 
             // Search Logic (Server-side Prefix Search)
             if (searchText.trim()) {
                 const term = searchText.trim();
 
-                if (loadMore && lastDoc) {
+                // Search with Pagination
+                if (loadMore && lastDoc) { // continue from lastDoc if loading more
                     q = query(
                         usersRef,
                         orderBy('displayName'),
@@ -118,7 +126,7 @@ export default function FindFriendsScreen() {
                         startAfter(lastDoc),
                         limit(PAGE_SIZE)
                     );
-                } else {
+                } else { // else start fresh search
                     q = query(
                         usersRef,
                         orderBy('displayName'),
@@ -145,6 +153,7 @@ export default function FindFriendsScreen() {
                 }
             }
 
+            // Execute Query and Process Results
             const querySnapshot = await getDocs(q);
 
             // Check if we hit the end
@@ -159,8 +168,10 @@ export default function FindFriendsScreen() {
                 setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
             }
 
+            // Map Results to UserProfile Array
             const newUsers: UserProfile[] = [];
             querySnapshot.forEach((docSnap) => {
+                // Exclude current user from results
                 if (docSnap.id !== user?.uid) {
                     const data = docSnap.data();
                     newUsers.push({
@@ -178,62 +189,68 @@ export default function FindFriendsScreen() {
                 }
             });
 
+            // Merge or Set Users
             if (loadMore) {
                 // Append unique users
                 setUsers(prev => {
                     const existingIds = new Set(prev.map(u => u.uid));
                     const uniqueNew = newUsers.filter(u => !existingIds.has(u.uid));
-                    return [...prev, ...uniqueNew];
+                    return [...prev, ...uniqueNew]; // ... append unique new users
                 });
             } else {
-                setUsers(newUsers);
+                setUsers(newUsers); // Fresh load
             }
 
-        } catch (error: any) {
+        } catch (error: any) { // Error Handling
             console.error('Error loading users:', error);
-        } finally {
+        } finally { // Reset loading states
             setLoading(false);
             setLoadingMore(false);
         }
     };
 
+    // Load Sent Friend Requests
     const loadSentRequests = async () => {
         if (!user) return;
         try {
+            // Query Sent Friend Requests
             const requestsRef = collection(db, 'friendRequests');
             const q = query(requestsRef, where('fromUserId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
+            const querySnapshot = await getDocs(q); // get all sent requests
             const sentRequestIds: string[] = [];
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                if (data.status === 'pending') {
+                if (data.status === 'pending') { // only track pending requests
                     sentRequestIds.push(data.toUserId);
                 }
             });
-            setSentRequests(sentRequestIds);
+            setSentRequests(sentRequestIds); // update state with sent requests
         } catch (error) {
             console.error('Error loading requests:', error);
         }
     };
 
+    // Load Existing Friends
     const loadExistingFriends = async () => {
         if (!user) return;
         try {
+            // Query Existing Friends
             const friendsRef = collection(db, 'friends');
             const q = query(friendsRef, where('userId', '==', user.uid));
-            const querySnapshot = await getDocs(q);
+            const querySnapshot = await getDocs(q); // get all friends
             const friendIds: string[] = [];
             querySnapshot.forEach((doc) => {
-                friendIds.push(doc.data().friendId);
+                friendIds.push(doc.data().friendId); // collect friend IDs
             });
-            setExistingFriends(friendIds);
+            setExistingFriends(friendIds); // update state with existing friends
         } catch (error) {
             console.error('Error loading friends:', error);
         }
     };
 
+    // Handle Search Input Change
     const handleSearch = (text: string) => {
-        setSearchText(text);
+        setSearchText(text); // update search text state
     };
 
     // Trigger search when text changes with debounce
@@ -242,16 +259,18 @@ export default function FindFriendsScreen() {
             setLastDoc(null);
             setHasMore(true);
             loadUsers(false);
-        }, 500);
-        return () => clearTimeout(timer);
+        }, 500); // debounce delay 500ms
+        return () => clearTimeout(timer); // cleanup on unmount or text change
     }, [searchText]);
 
+    // Open Friend Request Modal
     const openRequestModal = (targetUser: UserProfile) => {
         setSelectedUser(targetUser);
         setRequestMessage('');
         setShowRequestModal(true);
     };
 
+    // Send Friend Request Function
     const sendFriendRequest = async () => {
         if (!user || !selectedUser) return;
         try {
@@ -259,6 +278,7 @@ export default function FindFriendsScreen() {
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
 
+            // Add Friend Request Document
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: user.uid,
                 fromUserName: currentUserData?.displayName || user.email || 'User',
@@ -272,8 +292,8 @@ export default function FindFriendsScreen() {
             });
 
             Alert.alert('Success', `Friend request sent to ${selectedUser.displayName}`);
-            setShowRequestModal(false);
-            setSentRequests([...sentRequests, selectedUser.uid]);
+            setShowRequestModal(false); // close modal
+            setSentRequests([...sentRequests, selectedUser.uid]); // update sent requests state
         } catch (error: any) {
             Alert.alert('Error', 'Failed to send friend request');
         } finally {
@@ -281,21 +301,25 @@ export default function FindFriendsScreen() {
         }
     };
 
+    // Render Each User Card
     const renderUserCard = ({ item }: { item: UserProfile }) => {
-        const isFriend = existingFriends.includes(item.uid);
-        const requestSent = sentRequests.includes(item.uid);
-        const isOnline = item.status === 'online';
+        // Determine Relationship Status
+        const isFriend = existingFriends.includes(item.uid); // check if already friends
+        const requestSent = sentRequests.includes(item.uid); // check if request already sent
+        const isOnline = item.status === 'online'; // online status
 
+        // Location Text Handling
         let locationText = null;
-        if (item.location) {
+        if (item.location) { // check if location exists
             if (typeof item.location === 'string') {
-                locationText = item.location;
+                locationText = item.location; // use string location
             } else if (typeof item.location === 'object') {
-                locationText = "Location Shared";
+                locationText = "Location Shared"; // placeholder for object location
             }
         }
 
         return (
+            // User Card Container
             <View style={styles.userCard}>
                 <View style={styles.userHeader}>
                     <View style={styles.avatarContainer}>
@@ -327,6 +351,7 @@ export default function FindFriendsScreen() {
                     </View>
                 </View>
 
+                {/* Skills Section */}
                 <View style={styles.skillsRow}>
                     {item.skillsTeaching.length > 0 && (
                         <View style={styles.skillGroup}>
@@ -346,18 +371,19 @@ export default function FindFriendsScreen() {
                     )}
                 </View>
 
+                {/* Action Section */}
                 <View style={styles.actionContainer}>
-                    {isFriend ? (
+                    {isFriend ? ( // already friends
                         <View style={styles.statusContainer}>
                             <Ionicons name="checkmark-circle" size={18} color={COLORS.accentGreen} />
                             <Text style={[styles.statusText, { color: COLORS.accentGreen }]}>Friends</Text>
                         </View>
-                    ) : requestSent ? (
+                    ) : requestSent ? ( // request already sent
                         <View style={styles.statusContainer}>
                             <Ionicons name="time" size={18} color={COLORS.accentOrange} />
                             <Text style={[styles.statusText, { color: COLORS.accentOrange }]}>Request Sent</Text>
                         </View>
-                    ) : (
+                    ) : ( // show add friend button
                         <TouchableOpacity
                             style={styles.addFriendButton}
                             onPress={() => openRequestModal(item)}
@@ -370,6 +396,7 @@ export default function FindFriendsScreen() {
         );
     };
 
+    // Render Footer for Loading More Indicator
     const renderFooter = () => {
         if (!loadingMore) return <View style={styles.bottomSpacer} />;
         return (
@@ -380,6 +407,7 @@ export default function FindFriendsScreen() {
     };
 
     return (
+        // Main Container
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.push('/(app)/profile')} style={styles.backButton}>
@@ -389,6 +417,7 @@ export default function FindFriendsScreen() {
                 <View style={{ width: 40 }} />
             </View>
 
+            {/* Search Box */}
             <View style={styles.searchContainer}>
                 <View style={styles.searchBox}>
                     <Ionicons name="search" size={20} color={COLORS.textSecondary} style={{ marginRight: 8 }} />
@@ -402,11 +431,12 @@ export default function FindFriendsScreen() {
                 </View>
             </View>
 
+            {/* User List */}
             {loading && !loadingMore ? (
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={COLORS.primaryBrand} />
                 </View>
-            ) : (
+            ) : ( // If not loading, show list
                 <FlatList
                     data={users}
                     renderItem={renderUserCard}
@@ -439,6 +469,7 @@ export default function FindFriendsScreen() {
                             </TouchableOpacity>
                         </View>
 
+                        {/* Modal Body */}
                         {selectedUser && (
                             <View style={styles.modalBody}>
                                 <View style={styles.modalUserInfo}>
@@ -453,6 +484,7 @@ export default function FindFriendsScreen() {
                                     </View>
                                 </View>
 
+                                {/* Message Input */}
                                 <Text style={styles.messageLabel}>Add a message (optional)</Text>
                                 <TextInput
                                     style={styles.messageInput}
@@ -464,6 +496,7 @@ export default function FindFriendsScreen() {
                                     placeholderTextColor={COLORS.textSecondary}
                                 />
 
+                                {/* Modal Buttons */}
                                 <View style={styles.modalButtons}>
                                     <TouchableOpacity
                                         style={[styles.modalButton, styles.cancelButton]}
@@ -478,7 +511,7 @@ export default function FindFriendsScreen() {
                                     >
                                         {sending ? (
                                             <ActivityIndicator color={COLORS.primaryBrandText} />
-                                        ) : (
+                                        ) : ( // if not sending, show text
                                             <Text style={styles.sendButtonText}>Send Request</Text>
                                         )}
                                     </TouchableOpacity>
@@ -492,6 +525,7 @@ export default function FindFriendsScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

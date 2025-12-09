@@ -32,7 +32,7 @@ const COLORS = {
     accentRed: '#EF4444',
 };
 
-// Interfaces
+// User Profile Types
 interface UserProfile {
     uid: string;
     email: string;
@@ -40,11 +40,12 @@ interface UserProfile {
     bio?: string;
     skillsTeaching: string[];
     skillsLearning: string[];
-    //location?: string;
+    //location?: string; // Legacy
     status: 'online' | 'offline' | 'in-call';
     friendCount: number;
 }
 
+// Friend Request Types
 interface FriendRequest {
     id: string;
     fromUserId: string;
@@ -54,6 +55,7 @@ interface FriendRequest {
     status: 'pending' | 'accepted' | 'rejected';
 }
 
+// Friend Types
 interface Friend {
     id: string; // friend document id
     friendId: string; // user id of the friend
@@ -61,10 +63,13 @@ interface Friend {
     email: string;
 }
 
+// Main Profile Screen
 export default function ProfileScreen() {
+    // Hooks & State
     const { user } = useAuth();
     const router = useRouter();
 
+    // State
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [requests, setRequests] = useState<FriendRequest[]>([]);
     const [friends, setFriends] = useState<Friend[]>([]);
@@ -73,74 +78,91 @@ export default function ProfileScreen() {
 
     // Use focus effect to reload data when screen appears
     useFocusEffect(
+        // useCallback to memorize the function meaning it returns the same function reference across multiple renders unless its dependencies change
         useCallback(() => {
-            loadAllData();
+            loadAllData(); // Load all data when screen is focused
         }, [])
     );
 
+    // Load all data function
     const loadAllData = async () => {
         if (!user) return;
         setLoading(true);
-        await Promise.all([loadUserProfile(), loadFriendRequests(), loadFriends()]);
+        // Parallel data loading for efficiency
+        await Promise.all([loadUserProfile(), loadFriendRequests(), loadFriends()]); // Load profile, requests, and friends.
         setLoading(false);
         setRefreshing(false);
     };
 
+    // Refresh handler
     const onRefresh = () => {
         setRefreshing(true);
         loadAllData();
     };
 
+    // Load user profile from Firestore
     const loadUserProfile = async () => {
         if (!user) return;
         try {
-            const docRef = doc(db, 'users', user.uid);
+            const docRef = doc(db, 'users', user.uid); // Reference to user document
             const docSnap = await getDoc(docRef);
+            // Check if document exists
             if (docSnap.exists()) {
-                setProfile(docSnap.data() as UserProfile);
+                setProfile(docSnap.data() as UserProfile); // Set profile state
             }
         } catch (error) {
             console.error("Error loading profile", error);
         }
     };
 
+    // Load friend requests from Firestore
     const loadFriendRequests = async () => {
         if (!user) return;
         try {
+            // Query for pending friend requests to the current user
             const q = query(
                 collection(db, 'friendRequests'),
                 where('toUserId', '==', user.uid),
                 where('status', '==', 'pending')
             );
+            // Execute the query to get pending friend requests
             const snapshot = await getDocs(q);
-            const reqs: FriendRequest[] = [];
+
+            const reqs: FriendRequest[] = []; // Temporary array to hold requests
+
             snapshot.forEach(doc => {
+                // Push each request into the array
                 reqs.push({ id: doc.id, ...doc.data() } as FriendRequest);
             });
-            setRequests(reqs);
+            setRequests(reqs); // Update state with fetched requests
         } catch (error) {
             console.error("Error loading requests", error);
         }
     };
 
+    // Load friends from Firestore
     const loadFriends = async () => {
         if (!user) return;
         try {
+            // Query for friends where current user is the owner
             const q = query(
                 collection(db, 'friends'),
                 where('userId', '==', user.uid)
             );
+            // Execute the query to get friends
             const snapshot = await getDocs(q);
             
-            const friendsData: Friend[] = [];
+            const friendsData: Friend[] = []; // Temporary array to hold friends
             
+            // For each friend document, fetch the friend's profile data
             for (const friendDoc of snapshot.docs) {
-                const fData = friendDoc.data();
-                const friendProfileRef = doc(db, 'users', fData.friendId);
-                const friendProfileSnap = await getDoc(friendProfileRef);
+                const fData = friendDoc.data(); // Friend document data
+                const friendProfileRef = doc(db, 'users', fData.friendId); // Reference to friend's profile
+                const friendProfileSnap = await getDoc(friendProfileRef); // Fetch friend's profile
                 
-                if (friendProfileSnap.exists()) {
+                if (friendProfileSnap.exists()) { // Check if profile exists
                     const fp = friendProfileSnap.data();
+                    // Push friend data into the array
                     friendsData.push({
                         id: friendDoc.id,
                         friendId: fData.friendId,
@@ -149,22 +171,26 @@ export default function ProfileScreen() {
                     });
                 }
             }
-            setFriends(friendsData);
+            setFriends(friendsData); // Update state with fetched friends
         } catch (error) {
             console.error("Error loading friends", error);
         }
     };
 
+    // Handle accepting a friend request
     const handleAcceptRequest = async (request: FriendRequest) => {
         try {
+            // Update request status to accepted
             await updateDoc(doc(db, 'friendRequests', request.id), { status: 'accepted' });
 
+            // Add friend to current user's friends list
             await addDoc(collection(db, 'friends'), {
                 userId: user!.uid,
                 friendId: request.fromUserId,
                 createdAt: new Date().toISOString()
             });
             
+            // Add the current user to the requester's friends list
             await addDoc(collection(db, 'friends'), {
                 userId: request.fromUserId,
                 friendId: user!.uid,
@@ -172,25 +198,28 @@ export default function ProfileScreen() {
             });
 
             Alert.alert('Success', 'Friend request accepted!');
-            loadAllData();
+            loadAllData(); // Reload all data
         } catch (error) {
             Alert.alert('Error', 'Could not accept request');
         }
     };
 
+    // Handle rejecting a friend request
     const handleRejectRequest = async (requestId: string) => {
         try {
+            // Update request status to rejected
             await updateDoc(doc(db, 'friendRequests', requestId), { status: 'rejected' });
-            loadFriendRequests();
+            loadFriendRequests(); // Reload friend requests only
         } catch (error) {
             console.error(error);
         }
     };
 
+    // Handle messaging a friend
     const handleMessageFriend = (friend: Friend) => {
         if (!user) return;
-        const conversationId = generateConversationId(user.uid, friend.friendId);
-        router.push({
+        const conversationId = generateConversationId(user.uid, friend.friendId); // Generate unique conversation ID
+        router.push({ // Navigate to chat room with params
             pathname: '/(app)/chat-room',
             params: {
                 conversationId,
@@ -200,6 +229,7 @@ export default function ProfileScreen() {
         });
     };
 
+    // Loading state
     if (loading && !refreshing) {
         return (
             <SafeAreaView style={styles.container}>
@@ -211,6 +241,7 @@ export default function ProfileScreen() {
     }
 
     return (
+        // Main Container
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Profile</Text>
@@ -219,6 +250,7 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
             </View>
 
+            {/* Content ScrollView */}
             <ScrollView 
                 style={styles.content}
                 contentContainerStyle={styles.scrollContent}
@@ -275,8 +307,10 @@ export default function ProfileScreen() {
                             <Text style={styles.linkText}>Manage</Text>
                         </TouchableOpacity>
                     </View>
+                    {/* Skills Card */}
                     <View style={styles.skillsCard}>
                         <View style={styles.skillRow}>
+                            {/* Teaches List */}
                             <Text style={styles.skillLabel}>Teaches:</Text>
                             <Text style={styles.skillList}>
                                 {profile?.skillsTeaching && profile.skillsTeaching.length > 0 ? profile.skillsTeaching.join(', ') : 'No skills listed'}
@@ -284,6 +318,7 @@ export default function ProfileScreen() {
                         </View>
                         <View style={styles.divider} />
                         <View style={styles.skillRow}>
+                            {/* Learns List */}
                             <Text style={styles.skillLabel}>Learns:</Text>
                             <Text style={styles.skillList}>
                                 {profile?.skillsLearning && profile.skillsLearning.length > 0 ? profile.skillsLearning.join(', ') : 'No interests listed'}
@@ -299,6 +334,7 @@ export default function ProfileScreen() {
                     </View>
                     <TouchableOpacity 
                         style={styles.menuItem} 
+                        // Navigation to Payment History Screen
                         onPress={() => router.push('/(app)/history')}
                     >
                         <View style={styles.menuIconBox}>
@@ -309,10 +345,10 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                 </View>
                 
-
                 {/* Friend Requests */}
                 {requests.length > 0 && (
                     <View style={styles.sectionContainer}>
+                        {/* Friend Requests Title */}
                         <Text style={styles.sectionTitle}>Requests ({requests.length})</Text>
                         {requests.map(req => (
                             <View key={req.id} style={styles.requestCard}>
@@ -326,6 +362,7 @@ export default function ProfileScreen() {
                                     </View>
                                 </View>
                                 <View style={styles.requestActions}>
+                                    {/* Accept & Reject Buttons */}
                                     <TouchableOpacity style={styles.rejectButton} onPress={() => handleRejectRequest(req.id)} >
                                         <Ionicons name="close" size={20} color={COLORS.textSecondary} />
                                     </TouchableOpacity>
@@ -343,27 +380,31 @@ export default function ProfileScreen() {
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Friends ({friends.length})</Text>
                         
-                        {/* 1. Added Navigation to Friends List Page */}
+                        {/* Navigation to Friends List Page */}
                         <View style={{flexDirection: 'row', gap: 16}}>
                             <TouchableOpacity onPress={() => router.push('/(app)/friends-list')}>
                                 <Text style={styles.linkText}>View All</Text>
                             </TouchableOpacity>
+                            {/* Navigation to Find Friends Page */}
                             <TouchableOpacity onPress={() => router.push('/(app)/find-friends')}>
                                 <Text style={styles.linkText}>+ Find New</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
 
+                    {/* Friends Cards */}
                     {friends.length === 0 ? (
+                        // if no friends, show empty state
                         <View style={styles.emptyState}>
                             <Text style={styles.emptyText}>No friends yet.</Text>
                         </View>
-                    ) : (
+                    ) : ( // else map through friends
                         friends.slice(0, 3).map(friend => ( // Only showing first 3 here now
                             <TouchableOpacity 
                                 key={friend.id} 
                                 style={styles.friendCard}
                                 onPress={() => router.push({
+                                    // Navigate to Friend's Profile Page with params
                                     pathname: '/(app)/user_profile',
                                     params: { userId: friend.friendId }
                                 })}
@@ -374,6 +415,7 @@ export default function ProfileScreen() {
                                     </View>
                                     <Text style={styles.friendName}>{friend.displayName}</Text>
                                 </View>
+                                {/* Message Friend Button */}
                                 <TouchableOpacity style={styles.iconButton} onPress={() => handleMessageFriend(friend)}>
                                     <Ionicons name="chatbubble-ellipses-outline" size={20} color={COLORS.accentGreen} />
                                 </TouchableOpacity>
@@ -381,13 +423,13 @@ export default function ProfileScreen() {
                         ))
                     )}
                 </View>
-                
                 <View style={{height: 30}} />
             </ScrollView>
         </SafeAreaView>
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

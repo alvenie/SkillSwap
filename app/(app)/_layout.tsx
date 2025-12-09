@@ -66,7 +66,7 @@ export default function TabLayout() {
                 }}
             />
 
-            {/* 4. Chat List */}
+            {/* 3. Chat List */}
             <Tabs.Screen
                 name="chat-list"
                 options={{
@@ -75,7 +75,7 @@ export default function TabLayout() {
                 }}
             />
 
-            {/* 5. Calendar (NEW) */}
+            {/* 4. Calendar */}
             <Tabs.Screen
                 name="calendar"
                 options={{
@@ -84,7 +84,7 @@ export default function TabLayout() {
                 }}
             />
 
-            {/* 6. Profile */}
+            {/* 5. Profile */}
             <Tabs.Screen
                 name="profile"
                 options={{

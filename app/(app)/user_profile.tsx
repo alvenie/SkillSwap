@@ -1,7 +1,7 @@
+import { haversineDistance } from '@/utils/haversineDistance';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-import { haversineDistance } from '@/utils/haversineDistance';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -19,7 +19,7 @@ import { generateConversationId } from '../../utils/conversationUtils';
 
 // Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D',
+    primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
@@ -32,6 +32,7 @@ const COLORS = {
     accentBlue: '#3B82F6',
 };
 
+// User Data Interface
 interface UserData {
     uid: string;
     displayName: string;
@@ -43,14 +44,17 @@ interface UserData {
     status?: string;
 }
 
-
-
+// Main Component
 export default function UserProfileScreen() {
+    // Hooks and State
     const { user: currentUser } = useAuth();
     const router = useRouter();
-    const params = useLocalSearchParams();
+    const params = useLocalSearchParams(); // Get URL params
+
+    // Extract userId from params
     const userId = params.userId as string;
 
+    // User Data
     const [userData, setUserData] = useState<UserData | null>(null);
     const [loading, setLoading] = useState(true);
     
@@ -59,16 +63,19 @@ export default function UserProfileScreen() {
     const [requestStatus, setRequestStatus] = useState<'none' | 'pending' | 'received'>('none');
     const [actionLoading, setActionLoading] = useState(false);
 
+    // Current User Location
     const [currentUserLocation, setCurrentUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
+    // Fetch current user's location
     useEffect(() => {
-        const fetchUserLocation = async () => {
+        const fetchUserLocation = async () => { // Fetch current user's location from their profile
             if (!currentUser) return;
             try {
+                // Get current user's document
                 const docSnap = await getDoc(doc(db, "users", currentUser.uid));
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.location) {
+                    if (data.location) { // If location exists, set it
                         setCurrentUserLocation({
                             latitude: data.location.latitude,
                             longitude: data.location.longitude,
@@ -80,21 +87,24 @@ export default function UserProfileScreen() {
             }
         };
 
-        fetchUserLocation();
-    }, [currentUser]);
+        fetchUserLocation(); // Call the function
+    }, [currentUser]); // Run when currentUser changes
 
+    // Load user profile and relationship status on mount
     useEffect(() => {
         if (userId) {
             loadUserProfile();
-            checkRelationshipStatus();
+            checkRelationshipStatus(); // Check if current user is friends with this user
         }
-    }, [userId]);
+    }, [userId]); // Run when userId changes
 
+    // Load User Profile
     const loadUserProfile = async () => {
         try {
+            // Fetch user document
             const docRef = doc(db, 'users', userId);
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
+            if (docSnap.exists()) { // If user exists, set UserData
                 setUserData({ uid: docSnap.id, ...docSnap.data() } as UserData);
             } else {
                 Alert.alert('Error', 'User not found');
@@ -107,6 +117,7 @@ export default function UserProfileScreen() {
         }
     };
 
+    // Async function to check relationship status
     const checkRelationshipStatus = async () => {
         if (!currentUser) return;
 
@@ -114,7 +125,7 @@ export default function UserProfileScreen() {
         const friendsRef = collection(db, 'friends');
         const qFriend = query(friendsRef, where('userId', '==', currentUser.uid), where('friendId', '==', userId));
         const friendSnap = await getDocs(qFriend);
-        if (!friendSnap.empty) {
+        if (!friendSnap.empty) { // They are friends
             setIsFriend(true);
             return;
         }
@@ -125,7 +136,7 @@ export default function UserProfileScreen() {
         // Did I send a request?
         const qSent = query(requestsRef, where('fromUserId', '==', currentUser.uid), where('toUserId', '==', userId), where('status', '==', 'pending'));
         const sentSnap = await getDocs(qSent);
-        if (!sentSnap.empty) {
+        if (!sentSnap.empty) { // I have sent them a request
             setRequestStatus('pending');
             return;
         }
@@ -133,22 +144,24 @@ export default function UserProfileScreen() {
         // Did they send me a request?
         const qReceived = query(requestsRef, where('fromUserId', '==', userId), where('toUserId', '==', currentUser.uid), where('status', '==', 'pending'));
         const receivedSnap = await getDocs(qReceived);
-        if (!receivedSnap.empty) {
+        if (!receivedSnap.empty) { // They have sent me a request
             setRequestStatus('received');
             return;
         }
 
-        setRequestStatus('none');
+        setRequestStatus('none'); // No relationship found
     };
 
+    // Handle sending friend request
     const handleSendRequest = async () => {
         if (!currentUser || !userData) return;
-        setActionLoading(true);
+        setActionLoading(true); // Start loading
         try {
             // Get my details for the notification
             const myProfileSnap = await getDoc(doc(db, 'users', currentUser.uid));
             const myData = myProfileSnap.data();
 
+            // Create friend request document
             await addDoc(collection(db, 'friendRequests'), {
                 fromUserId: currentUser.uid,
                 fromUserName: myData?.displayName || currentUser.email,
@@ -159,7 +172,7 @@ export default function UserProfileScreen() {
                 status: 'pending',
                 createdAt: new Date().toISOString()
             });
-            setRequestStatus('pending');
+            setRequestStatus('pending'); // Update status to pending
             Alert.alert('Success', 'Friend request sent!');
         } catch (error) {
             Alert.alert('Error', 'Could not send request');
@@ -168,12 +181,14 @@ export default function UserProfileScreen() {
         }
     };
 
+    // Handle messaging the user
     const handleMessage = () => {
         if (!currentUser || !userData) return;
+        // Generate conversation ID and navigate to chat room
         const conversationId = generateConversationId(currentUser.uid, userId);
         router.push({
-            pathname: '/(app)/chat-room',
-            params: {
+            pathname: '/(app)/chat-room', // Chat room path with params
+            params: { // Pass necessary params
                 conversationId,
                 otherUserId: userId,
                 otherUserName: userData.displayName
@@ -181,6 +196,7 @@ export default function UserProfileScreen() {
         });
     };
 
+    // Loading state
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -191,6 +207,7 @@ export default function UserProfileScreen() {
         );
     }
 
+    // If no user data, return null
     if (!userData) return null;
 
     // Safe location display
@@ -198,16 +215,18 @@ export default function UserProfileScreen() {
     if (userData.location && currentUserLocation) {
         try {
             const distance = haversineDistance(
+                // Calculate distance between current user and profile user locations using haversine formula
                 currentUserLocation,
                 { latitude: userData.location.latitude, longitude: userData.location.longitude }
             );
-            locationText = `${distance.toFixed(1)} km away`;
+            locationText = `${distance.toFixed(1)} km away`; // Display distance in km
         } catch (err) {
             locationText = "Location unavailable";
         }
     }
 
     return (
+        // Main Profile View
         <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -228,6 +247,7 @@ export default function UserProfileScreen() {
                     </View>
 
                     <Text style={styles.name}>{userData.displayName}</Text>
+                    {/* Location */}
                     {locationText && (
                         <View style={styles.row}>
                             <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
@@ -235,36 +255,37 @@ export default function UserProfileScreen() {
                         </View>
                     )}
                     
+                    {/* Bio */}
                     {userData.bio ? (
                         <Text style={styles.bio}>{userData.bio}</Text>
-                    ) : (
+                    ) : ( // If no bio, show placeholder
                         <Text style={styles.emptyBio}>No bio available</Text>
                     )}
 
                     {/* Action Buttons */}
                     <View style={styles.actionRow}>
-                        {isFriend ? (
+                        {isFriend ? ( // If friends, show Message button
                             <TouchableOpacity style={styles.primaryBtn} onPress={handleMessage}>
                                 <Ionicons name="chatbubbles" size={20} color={COLORS.primaryBrandText} />
                                 <Text style={styles.primaryBtnText}>Message</Text>
                             </TouchableOpacity>
-                        ) : requestStatus === 'pending' ? (
+                        ) : requestStatus === 'pending' ? ( // If request pending, disable button
                             <View style={styles.disabledBtn}>
                                 <Text style={styles.disabledBtnText}>Request Sent</Text>
                             </View>
-                        ) : requestStatus === 'received' ? (
+                        ) : requestStatus === 'received' ? ( // If request received, prompt to check requests
                             <View style={styles.disabledBtn}>
                                 <Text style={styles.disabledBtnText}>Check Requests</Text>
                             </View>
-                        ) : (
+                        ) : ( // Else, show Add Friend button
                             <TouchableOpacity 
                                 style={styles.primaryBtn} 
                                 onPress={handleSendRequest}
                                 disabled={actionLoading}
                             >
-                                {actionLoading ? (
+                                {actionLoading ? ( // Show loading indicator if action is in progress
                                     <ActivityIndicator color={COLORS.primaryBrandText} />
-                                ) : (
+                                ) : ( // Else show Add Friend text
                                     <>
                                         <Ionicons name="person-add" size={20} color={COLORS.primaryBrandText} />
                                         <Text style={styles.primaryBtnText}>Add Friend</Text>
@@ -280,30 +301,34 @@ export default function UserProfileScreen() {
                     <Text style={styles.sectionTitle}>Skills</Text>
                     
                     <View style={styles.skillBox}>
+                        {/* Skills Teaching */}
                         <Text style={styles.skillHeader}>Teaches</Text>
                         <View style={styles.chipContainer}>
                             {userData.skillsTeaching && userData.skillsTeaching.length > 0 ? (
+                                // Map through skillsTeaching and display chips for each skill
                                 userData.skillsTeaching.map((skill, index) => (
                                     <View key={index} style={styles.chip}>
                                         <Text style={styles.chipText}>{skill}</Text>
                                     </View>
                                 ))
-                            ) : (
+                            ) : ( // If no skills, show placeholder
                                 <Text style={styles.emptyText}>Nothing listed</Text>
                             )}
                         </View>
                     </View>
 
                     <View style={styles.skillBox}>
+                        {/* Skills Learning */}
                         <Text style={styles.skillHeader}>Learns</Text>
                         <View style={styles.chipContainer}>
                             {userData.skillsLearning && userData.skillsLearning.length > 0 ? (
+                                // Map through skillsLearning and display chips for each skill 
                                 userData.skillsLearning.map((skill, index) => (
                                     <View key={index} style={[styles.chip, styles.chipGreen]}>
                                         <Text style={styles.chipText}>{skill}</Text>
                                     </View>
                                 ))
-                            ) : (
+                            ) : ( // If no skills, show placeholder
                                 <Text style={styles.emptyText}>Nothing listed</Text>
                             )}
                         </View>
@@ -314,6 +339,7 @@ export default function UserProfileScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

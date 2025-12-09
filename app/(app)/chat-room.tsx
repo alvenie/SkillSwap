@@ -37,7 +37,7 @@ import { generateConversationId } from '../../utils/conversationUtils';
 
 // Theme Configuration
 const COLORS = {
-    primaryBrand: '#FCD34D',
+    primaryBrand: '#FCD34D', // Mustard Yellow
     primaryBrandText: '#1F2937',
     background: '#FFFFFF',
     cardBackground: '#FFFFFF',
@@ -65,11 +65,13 @@ interface BaseMessage {
     };
 }
 
+// Specific message types 
 interface TextMessage extends BaseMessage {
     type: 'text';
     text: string;
 }
 
+// Payment Request Message interface
 interface PaymentRequestMessage extends BaseMessage {
     type: 'payment_request';
     amount: number;
@@ -78,13 +80,16 @@ interface PaymentRequestMessage extends BaseMessage {
     paymentIntentId?: string;
 }
 
+// Union type for all message types
 type Message = TextMessage | PaymentRequestMessage;
 
+// Main Chat Room Screen
 export default function ChatRoomScreen() {
+    // Hooks & State
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const params = useLocalSearchParams();
-    const { initPaymentSheet, presentPaymentSheet } = useStripe();
+    const { initPaymentSheet, presentPaymentSheet } = useStripe(); // Stripe Hooks
 
     const otherUserId = params.otherUserId as string;
     // Initial fallback, but we will fetch the real one
@@ -137,12 +142,14 @@ export default function ChatRoomScreen() {
         };
         fetchOtherProfile();
 
-    }, [authLoading, user, otherUserId, params.conversationId]);
+    }, [authLoading, user, otherUserId, params.conversationId]); // useEffect dependencies
 
     // Initialize Chat Document
     useEffect(() => {
+        // Safety checks 
         if (!user || !conversationId || !otherUserId || isInitializing.current) return;
         
+        // Initialize conversation document if it doesn't exist
         const init = async () => {
             isInitializing.current = true;
             try {
@@ -160,6 +167,7 @@ export default function ChatRoomScreen() {
                          nameToUse = otherDoc.data()?.displayName || 'User';
                     }
 
+                    // Create the conversation document
                     await setDoc(conversationRef, {
                         participants: [user.uid, otherUserId],
                         participantNames: {
@@ -173,6 +181,7 @@ export default function ChatRoomScreen() {
                         createdAt: new Date().toISOString(),
                     });
                 }
+                // Mark conversation as ready
                 setConversationReady(true);
             } catch (e) {
                 console.error(e);
@@ -181,34 +190,39 @@ export default function ChatRoomScreen() {
             }
         };
         init();
-    }, [user, conversationId, otherUserId]);
+    }, [user, conversationId, otherUserId]); // component changes when these change
 
     // Listen for Messages
     useEffect(() => {
         if (!conversationReady || !conversationId) return;
 
+        // Set up Firestore listener for messages
         const q = query(
             collection(db, 'conversations', conversationId, 'messages'),
             orderBy('timestamp', 'asc')
         );
 
+        // Real-time updates for messages
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(doc => ({
+            const msgs = snapshot.docs.map(doc => ({ // Map Firestore docs to Message objects
                 id: doc.id,
                 ...doc.data()
             } as Message));
+            // Update state with new messages
             setMessages(msgs);
             setLoading(false);
             setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
         });
 
+        // Cleanup listener on unmount
         return () => unsubscribe();
-    }, [conversationReady, conversationId]);
+    }, [conversationReady, conversationId]); // component changes when these change
 
     // Actions
 
     // Clean up empty chats when backing out
     const handleBackPress = async () => {
+        // If no messages, delete the conversation
         if (messages.length === 0 && conversationId) {
             try {
                 // If no messages exist, remove the empty conversation document
@@ -218,20 +232,22 @@ export default function ChatRoomScreen() {
                 console.error('Error cleaning up empty conversation:', error);
             }
         }
-        router.replace('/(app)/chat-list');
+        router.replace('/(app)/chat-list'); // Navigate back to chat list
     };
 
+    // Send Text Message
     const sendMessage = async () => {
         if (!messageText.trim() || !user) return;
         setSending(true);
         try {
-            // FIX: Fetch fresh display name to update the chat record
+            // Fetch fresh display name to update the chat record
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
-            const currentUserName = currentUserData?.displayName || user.email || 'User';
+            const currentUserName = currentUserData?.displayName || user.email || 'User'; // Fallback to email if no name for legacy users
 
-            const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+            const messagesRef = collection(db, 'conversations', conversationId, 'messages'); // Reference to messages subcollection
 
+            // Add new message document
             await addDoc(messagesRef, {
                 type: 'text',
                 senderId: user.uid,
@@ -258,22 +274,26 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // Send Payment Request
     const sendPaymentRequest = async () => {
+        // Validate inputs
         const amount = parseFloat(paymentAmount);
         if (!amount || isNaN(amount) || !paymentDescription) {
             return Alert.alert('Missing fields', 'Please enter a valid amount and description.');
         }
 
+        // Send payment request message
         setSendingPaymentRequest(true);
         try {
             // Fetch fresh name here too
             if (!user?.uid) throw new Error('User not authenticated');
             const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
             const currentUserData = currentUserDoc.data();
-            const currentUserName = currentUserData?.displayName || user?.email || 'User';
+            const currentUserName = currentUserData?.displayName || user?.email || 'User'; // Fallback to email if no name
 
-            const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+            const messagesRef = collection(db, 'conversations', conversationId, 'messages'); // Messages subcollection
 
+            // Add payment request message
             await addDoc(messagesRef, {
                 type: 'payment_request',
                 senderId: user!.uid,
@@ -285,6 +305,7 @@ export default function ChatRoomScreen() {
                 read: false,
             });
 
+            // Update conversation last message
             await updateDoc(doc(db, 'conversations', conversationId), {
                 lastMessage: `Payment request: $${amount.toFixed(2)}`,
                 lastMessageTime: new Date().toISOString(),
@@ -292,6 +313,7 @@ export default function ChatRoomScreen() {
                 [`participantNames.${user?.uid}`]: currentUserName 
             });
 
+            // Close modal and reset form
             setShowPaymentModal(false);
             setPaymentAmount('');
             setPaymentDescription('');
@@ -304,9 +326,12 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // Handle Payment Processing
     const handlePayment = async (message: PaymentRequestMessage) => {
+        // Prevent double processing
         setProcessingPayment(message.id);
         try {
+            // Create Payment Intent via backend
             const paymentData = await paymentService.createPaymentIntent(
                 message.amount,
                 'usd',
@@ -314,10 +339,12 @@ export default function ChatRoomScreen() {
                 undefined
             );
 
+            // Initialize Stripe Payment Sheet
             const clientSecret = paymentData?.clientSecret;
             if (!clientSecret) throw new Error("Invalid payment response");
 
             const { error: initError } = await initPaymentSheet({
+                // Configure appearance and merchant details
                 merchantDisplayName: 'SkillSwap',
                 paymentIntentClientSecret: clientSecret,
                 appearance: { colors: { primary: COLORS.primaryBrand } }
@@ -325,6 +352,7 @@ export default function ChatRoomScreen() {
 
             if (initError) throw new Error(initError.message);
 
+            // Present Payment Sheet to user
             const { error: presentError } = await presentPaymentSheet();
             if (presentError) {
                 if (presentError.code === 'Canceled') console.log('User cancelled payment');
@@ -338,7 +366,7 @@ export default function ChatRoomScreen() {
                 paymentIntentId: paymentData.paymentIntentId,
             });
 
-            // Log History
+            // Log Payment History
             await addDoc(collection(db, 'payments'), {
                 userId: user!.uid,
                 userEmail: user!.email,
@@ -362,6 +390,7 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // Meetup Modal Handlers
     const handleOpenMeetupModal = () => {
         if (!conversationReady) {
             Alert.alert('Error', 'Chat not ready. Please try again.');
@@ -370,17 +399,22 @@ export default function ChatRoomScreen() {
         setShowMeetupModal(true);
     };
 
+    // Close Meetup Modal
     const handleCloseMeetupModal = () => {
         setShowMeetupModal(false);
     };
 
+    // Render Message Item
     const renderMessage = ({ item }: { item: Message }) => {
+        // Determine if the message is sent by the current user 
         const isSelf = item.senderId === user?.uid;
         const time = item.timestamp?.toDate ? item.timestamp.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
 
+        // Render Payment Request Message if applicable
         if (item.type === 'payment_request') {
             const pm = item as PaymentRequestMessage;
             return (
+                // Payment Request Card
                 <View style={[styles.row, isSelf ? styles.rowRight : styles.rowLeft]}>
                     <View style={styles.card}>
                         <View style={styles.cardHeader}>
@@ -393,6 +427,7 @@ export default function ChatRoomScreen() {
                         <Text style={styles.amountText}>${pm.amount.toFixed(2)}</Text>
                         <Text style={styles.descText}>{pm.description}</Text>
                         
+                        {/* Payment Action Button */}
                         {!isSelf && pm.status === 'pending' && (
                             <TouchableOpacity 
                                 style={styles.actionButton}
@@ -409,6 +444,7 @@ export default function ChatRoomScreen() {
         }
 
         return (
+            // Regular Text Message Bubble
             <View style={[styles.row, isSelf ? styles.rowRight : styles.rowLeft]}>
                 <View style={[styles.bubble, isSelf ? styles.bubbleSelf : styles.bubbleOther]}>
                     <Text style={[styles.msgText, isSelf ? {color: COLORS.primaryBrandText} : {color: COLORS.textPrimary}]}>
@@ -421,6 +457,7 @@ export default function ChatRoomScreen() {
     };
 
     return (
+        // Main Container with Safe Area
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
             <KeyboardAvoidingView 
                 style={{ flex: 1 }} 
@@ -444,9 +481,10 @@ export default function ChatRoomScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* Messages List */}
                 {loading ? (
                     <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primaryBrand} /></View>
-                ) : (
+                ) : ( // If loading complete, show message list
                     <FlatList
                         ref={flatListRef}
                         data={messages}
@@ -466,6 +504,7 @@ export default function ChatRoomScreen() {
                         multiline
                     />
 
+                    {/* Payment Request Button */}
                     <TouchableOpacity
                         style={styles.paymentIconButton}
                         onPress={() => setShowPaymentModal(true)}
@@ -474,6 +513,7 @@ export default function ChatRoomScreen() {
                         <Ionicons name="cash-outline" size={24} color="#FFFFFF" />
                     </TouchableOpacity>
 
+                    {/* Send Message Button */}
                     <TouchableOpacity
                         style={[
                             styles.sendButton,
@@ -484,7 +524,7 @@ export default function ChatRoomScreen() {
                     >
                         {sending ? (
                             <ActivityIndicator color={COLORS.primaryBrandText} size="small" />
-                        ) : (
+                        ) : ( // If not sending, show send icon
                             <Ionicons name="send" size={20} color={COLORS.primaryBrandText} />
                         )}
                     </TouchableOpacity>
@@ -512,6 +552,7 @@ export default function ChatRoomScreen() {
                             value={paymentDescription}
                             onChangeText={setPaymentDescription}
                         />
+                        {/* Payment Modal cancel and confirm buttons */}
                         <View style={styles.modalActions}>
                             <TouchableOpacity onPress={() => setShowPaymentModal(false)} style={styles.modalBtnCancel}>
                                 <Text style={styles.modalBtnText}>Cancel</Text>
@@ -524,6 +565,7 @@ export default function ChatRoomScreen() {
                 </View>
             </Modal>
 
+            {/* Schedule Meetup Modal */}
             <ScheduleMeetingModal
                 visible={showMeetupModal}
                 onClose={handleCloseMeetupModal}
@@ -535,6 +577,7 @@ export default function ChatRoomScreen() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: { 
         flex: 1, 

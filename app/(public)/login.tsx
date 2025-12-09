@@ -28,11 +28,14 @@ const COLORS = {
     border: '#E5E7EB',
 };
 
+// Login Screen Component
 export default function Login() {
+    // State Variables
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // Handle Login Logic
     const handleLogin = async () => {
         if (!email || !password) {
             Alert.alert('Error', 'Please enter both email and password.');
@@ -43,13 +46,14 @@ export default function Login() {
 
         try {
             // 1. Authenticate
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const userCredential = await signInWithEmailAndPassword(auth, email, password); // Firebase Auth sign-in
 
             // 2. Update/Create User Document
             const userRef = doc(db, 'users', userCredential.user.uid);
             const userDoc = await getDoc(userRef);
 
             if (!userDoc.exists()) {
+                // if userDoc doesn't exist, create it
                 await setDoc(userRef, {
                     uid: userCredential.user.uid,
                     email: userCredential.user.email,
@@ -63,7 +67,7 @@ export default function Login() {
                     reviewCount: 0,      // ADDED FOR REVIEWS
                     createdAt: new Date().toISOString(),
                 });
-            } else {
+            } else { // else update the status and lastSeen
                 const updateData: any = {
                     status: 'online',
                     lastSeen: new Date().toISOString(),
