@@ -159,6 +159,7 @@ export default function SignUp() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,

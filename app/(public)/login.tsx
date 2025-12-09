@@ -161,6 +161,7 @@ export default function Login() {
     );
 }
 
+// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,
