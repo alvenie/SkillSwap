@@ -1,22 +1,21 @@
-import CalendarView from '@/components/CalendarView';
-import ReviewModal from '@/components/ReviewModal';
-import { useAuth } from '@/context/AuthContext';
-import { db } from '@/firebaseConfig';
-import { calendarService } from '@/services/apiService';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
     View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    RefreshControl,
+    Alert,
+    ActivityIndicator,
 } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import { calendarService } from '@/services/apiService';
+import ReviewModal from '@/components/ReviewModal';
+import CalendarView from '@/components/CalendarView';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
+import { db } from '@/firebaseConfig';
 
-// Define Meeting interface
 interface Meeting {
     meetingId: string;
     requesterId: string;
@@ -68,12 +67,65 @@ export default function CalendarScreen() {
 
             // load meetings from API
             const allMeetings = await calendarService.getUserMeetings(user.uid);
-            setMeetings(allMeetings);
+
+            // Fetch fresh user names for all meetings
+            const meetingsWithNames = await Promise.all(
+                allMeetings.map(async (meeting: Meeting) => {
+                    try {
+                        // Fetch requester name
+                        const requesterDoc = await getDoc(doc(db, 'users', meeting.requesterId));
+                        const requesterData = requesterDoc.data();
+                        const requesterName = requesterData?.displayName || requesterData?.email || meeting.requesterName || 'User';
+
+                        // Fetch receiver name
+                        const receiverDoc = await getDoc(doc(db, 'users', meeting.receiverId));
+                        const receiverData = receiverDoc.data();
+                        const receiverName = receiverData?.displayName || receiverData?.email || meeting.receiverName || 'User';
+
+                        return {
+                            ...meeting,
+                            requesterName,
+                            receiverName,
+                        };
+                    } catch (error) {
+                        console.error('Error fetching names for meeting:', meeting.meetingId, error);
+                        return meeting; // Return original if fetch fails
+                    }
+                })
+            );
+
+            setMeetings(meetingsWithNames);
 
             // load pending requests from API
             const pending = await calendarService.getPendingRequests(user.uid);
             // update state with pending requests
             setPendingRequests(pending);
+
+            // Fetch fresh names for pending requests too
+            const pendingWithNames = await Promise.all(
+                pending.map(async (meeting: Meeting) => {
+                    try {
+                        const requesterDoc = await getDoc(doc(db, 'users', meeting.requesterId));
+                        const requesterData = requesterDoc.data();
+                        const requesterName = requesterData?.displayName || requesterData?.email || meeting.requesterName || 'User';
+
+                        const receiverDoc = await getDoc(doc(db, 'users', meeting.receiverId));
+                        const receiverData = receiverDoc.data();
+                        const receiverName = receiverData?.displayName || receiverData?.email || meeting.receiverName || 'User';
+
+                        return {
+                            ...meeting,
+                            requesterName,
+                            receiverName,
+                        };
+                    } catch (error) {
+                        console.error('Error fetching names for pending meeting:', meeting.meetingId, error);
+                        return meeting;
+                    }
+                })
+            );
+
+            setPendingRequests(pendingWithNames);
         } catch (error) {
             console.error('Error loading meetings:', error);
             Alert.alert('Error', 'Failed to load meetings');
@@ -140,7 +192,6 @@ export default function CalendarScreen() {
             {
                 text: 'Yes',
                 style: 'destructive',
-                // async cancellation logic
                 onPress: async () => {
                     try {
                         // cancel meeting via API
@@ -280,7 +331,6 @@ export default function CalendarScreen() {
                     )}
                 </View>
 
-                {/* meeting details */}
                 <View style={styles.meetingDetails}>
                     <Text style={styles.detailText}>
                         👤 With: <Text style={styles.detailValue}>{otherPersonName}</Text>
@@ -297,7 +347,6 @@ export default function CalendarScreen() {
                     )}
                 </View>
 
-                {/* Accept and Decline buttons for pending requests */}
                 {isPending && !isRequester && (
                     <View style={styles.actionButtons}>
                         <TouchableOpacity
@@ -315,7 +364,6 @@ export default function CalendarScreen() {
                     </View>
                 )}
 
-                {/* Cancel Meeting and Review buttons for accepted meetings */}
                 {meeting.status === 'accepted' && !isCompleted && (
                     <TouchableOpacity
                         style={[styles.actionButton, styles.cancelButton]}
@@ -325,7 +373,6 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                 )}
 
-                {/* Review button for completed meetings */}
                 {canReview && (
                     <TouchableOpacity
                         style={[styles.actionButton, styles.reviewButton]}
@@ -335,7 +382,6 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                 )}
 
-                {/* Reviewed badge */}
                 {hasReviewed(meeting.meetingId) && (
                     <View style={styles.reviewedBadge}>
                         <Text style={styles.reviewedText}>✓ Reviewed</Text>
@@ -345,10 +391,8 @@ export default function CalendarScreen() {
         );
     };
 
-    // Get meetings for selected date
     const selectedDateMeetings = getMeetingsForDate();
 
-    // Show loading indicator while fetching data
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
@@ -489,7 +533,6 @@ export default function CalendarScreen() {
     );
 }
 
-// Styles
 const styles = StyleSheet.create({
     container: {
         flex: 1,
