@@ -373,21 +373,4 @@ skillswap/
 - Achievement and gamification system
 - Multi-language support
 
-
----
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-
-
-## Show Your Support
-
-If you find this project helpful or interesting, please consider giving it a star!
-
----
-
 **Built with love by the SkillSwap Team**
